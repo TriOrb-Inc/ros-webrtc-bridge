@@ -21,7 +21,7 @@
 
 ## Project-Specific Principles
 
-このリポジトリは、設定駆動で ROS 2 Topic の Pub/Sub を WebRTC DataChannel に橋渡しする OSS です。現状は設計段階で、実装、依存導入、実機検証は未実施です。[設計検討書](docs/design.md)を読み、実装済み機能と提案を区別してください。
+このリポジトリは、設定駆動で ROS 2 Topic の Pub/Sub を WebRTC DataChannel に橋渡しする OSS です。現状は構想設計とconfig / codec / sessionのモジュール試作段階です。[設計検討書](docs/design.md)を読み、実装済みの内部API、未実装の接続部分、未実施の実機検証を区別してください。
 
 - Topic ごとの個別実装を増やす前に、宣言的な設定だけで機能追加できるか検討してください。設定の正本は `bridge.yaml` とし、設定 schema と公開 catalog を整合させる設計です。
 - ROS adapter、型 schema / codec、session / 認可 / queue、WebRTC transport、signaling の責務を分離してください。
@@ -38,7 +38,17 @@
 
 ## Local Checks
 
-現時点では `package.json`、build / lint / test script、CI は未整備です。`npm install` や `npm test` を実行可能な検証手順として扱わないでください。
+Node.js 22（22.12以上、検証版22.22.2）を使用します。依存はlockfileで固定しています。
+
+```bash
+npm ci --ignore-scripts
+npm run build
+npm run typecheck
+```
+
+buildは前回の`.runtime/build/`を削除してTypeScriptとsource mapを再生成します。`node_modules/`はnpm標準の解決先のためrootに置き、Gitから除外します。lintとCIは未整備です。testコマンドと保証範囲は [TESTS.md](TESTS.md#11-実装順序と完了条件)を参照してください。
+
+実行時依存はYAML 1.2 parserの`yaml 2.9.0`（ISC）です。開発依存は`typescript 5.9.3`（Apache-2.0）、`@types/node 22.20.2`（MIT）、source map付きV8計測の`c8 12.0.0`（ISC）です。lockfileの推移依存にはMIT、ISC、BSD-3-Clause、[BlueOak-1.0.0](https://blueoakcouncil.org/license/1.0.0)も含みます。配布物に依存を含める場合は各licenseの通知を同梱してください。native addonとWebRTCライブラリはまだ導入していません。
 
 文書変更ではリンク先、記載したファイル・コマンドの実在、用語、設計との整合性を確認してください。Git 管理下では次の差分確認も実施してください。
 

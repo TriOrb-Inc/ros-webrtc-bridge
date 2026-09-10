@@ -5,7 +5,7 @@
 ## First Read Checklist
 
 - 作業開始時に `CONTRIBUTING.md`、[`README.md`](README.md)、変更対象に関係する文書を確認する。
-- 設計の正本は [`docs/design.md`](docs/design.md)。現状は設計段階であり、提案されたAPIやコマンドを実装済みとして扱わない。
+- 設計の正本は [`docs/design.md`](docs/design.md)。独立モジュールの試作範囲は§14を確認し、未接続のROS / WebRTCや提案APIを実装済みとして扱わない。
 - テストに関わる作業では [`TESTS.md`](TESTS.md) を読み、対象の受け入れ条件と必要なテスト層を実装前に決める。
 - 新しいトップレベル文書やディレクトリを増やす前に、既存の配置先で表現できないかを確認する。
 - 日本語の用語集が追加された場合は、その表記を優先する。

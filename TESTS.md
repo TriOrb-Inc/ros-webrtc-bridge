@@ -1,6 +1,6 @@
 # テスト方針
 
-状態: 設計・未実装。テストコード、runner、CI、実測結果はありません。本書の配置・コマンド・合格条件は実装時に整備する計画です。
+状態: 独立モジュールのUnit・結合試験とrunnerを実装済み。ROS / browser / TURN、CI、性能測定は未実施で、M0全体の終了条件は未達です。現在の実行手順と検証範囲は§11に記載します。
 
 共通開発規約とカバレッジ必須条件の正本は [CONTRIBUTING.md](CONTRIBUTING.md)、製品の契約は [docs/design.md](docs/design.md)、セキュリティ境界は [SECURITY.md](SECURITY.md) とします。本書は、それらをどの環境・観測・合格条件で検証するかを定めます。仕様を変更する場合は関連文書も同時に更新します。
 
@@ -27,15 +27,17 @@
 
 Unitは高速に多数の順序・境界を探索し、E2Eは主要な利用者経路と境界の接続を確認します。全組合せをE2Eへ重複実装しません。ただし認可・期限・資源解放はUnitだけで完了させません。
 
-runnerはNode.jsの`node:test`、coverageは`c8`、browser自動化はPlaywrightを候補とします。未採用であり、M0でTypeScript/source map、branch計測、native addon、実WebRTC、対応browserとライセンスを評価してversionを固定します。採用理由と制約を本書へ追記します。
+runnerはNode.js 22の`node:test`、coverageは`c8 12.0.0`を採用しています。TypeScript 5.9.3でsource mapを生成し、未importファイルと未実行分岐を含めて検査します。browser自動化のPlaywrightは候補段階です。native addon、実WebRTC、対応browserの評価は未実施です。
 
 ## 3. Fixtureと独立した期待値
 
-テスト実装時の配置案です。現在は以下のディレクトリ・ファイルは未作成です。
+現在は`tests/unit/`、`tests/contracts/`、`tests/coverage/`を使用します。その他は後続の配置案です。
 
 ```text
-packages/*/src/<module>/       # 隣接するunitテスト
-tests/contracts/              # protocol/adapter/SDKの契約
+packages/*/src/<module>/       # 実装と内部API文書
+tests/unit/<module>/           # config / codec / session
+tests/contracts/              # 現在はmodule結合。protocol/adapter/SDKは後続
+tests/coverage/               # 計測設定の独立校正
 tests/fixtures/               # 手で確認したwire値、config、型定義
 tests/ros/                    # 独立ROS publisher/subscriberとintegration
 tests/browser/                # browserから実ROSまでのE2E
@@ -110,7 +112,7 @@ CMD-01は設計書のmonotonic clockによる期限境界を検証します。br
 
 [共通規約](CONTRIBUTING.md#testing-rules)の **C0・C1とも100%必須** を継承します。C0はstatement、C1はbranchを対応指標とし、line率だけで代用しません。MC/DCは対象外です。
 
-- 測定対象はbridge、SDK、signalingを含む自前の全runtime TypeScriptです。ROS adapter、起動処理、例外・終了経路を対象から外しません。
+- 測定対象はbridge、SDK、signalingを含む自前の全runtime TypeScriptです。ROS adapter、起動処理、例外・終了経路を対象から外しません。現実装はbridgeのみで、`.c8rc.json`の対象は`packages/bridge/src/**/*.ts`です。新packageの追加と同時に対象を拡張してください。
 - coverageのincludeで対象sourceを明示し、テストがimportしなかったファイルも0%として集計します。全体と各fileでC0/C1 100%を確認します。
 - unit/contract/integration/browserの必要な計測結果を同じcommit・同じsourceに対応付けて統合します。Node/browser間の重複やsource mapの誤対応を確認します。
 - M0で未実行branchを含む小さなfixtureを使い、TypeScriptへのsource map、未実行fileの検出、branch集計、複数jobのmergeを検証します。runnerの既定設定だけを信用しません。
@@ -175,10 +177,32 @@ flaky testにはissue、担当、原因仮説、修正期限を付けます。�
 
 各機能の実装PRで、その機能の正常・異常・境界試験と実行手順を追加します。「後の段階でテストする」を理由に実装済み機能の検証を省略しません。
 
-現時点では実行可能なtestコマンドはありません。導入時にbuild/lint等の共通コマンドは [CONTRIBUTING.md](CONTRIBUTING.md#local-checks)、testコマンドは本書を正本として記載します。本書にはROS/browser/TURNの前提・具体的な起動手順・timeout・後始末・artifact取得方法も追加します。
+現在のモジュール試作はROS不要で実行できます。Node.js 22（22.12以上、検証版22.22.2）、npm、lockfileの依存を使用します。build/typecheckの詳細は [CONTRIBUTING.md](CONTRIBUTING.md#local-checks)を参照してください。
+
+```bash
+npm ci --ignore-scripts
+npm run typecheck
+npm test
+npm run test:coverage
+```
+
+`npm test`はbuild後、Unitとモジュール結合試験を実行し、全runtime 9ファイルそれぞれのstatement / branch / function / line 100%を必須とします。テストは個別10秒のtimeoutを持ち、通常は数秒以内に完了します。型宣言`.d.ts`、外部依存、生成JS、テスト/harnessは分母に含めません。除外による未実装機能の合格扱いはしません。
+
+`npm run test:coverage`は計測設定の校正です。隔離したTypeScript fixtureで、source map、未実行分岐、未importファイル、複数processの計測統合を確認します。意図的にcoverage不足にした子processの失敗をassertし、親testが成功すれば校正合格です。製品コードの閾値は下げません。子processのtimeoutは既定30秒で、`COVERAGE_CALIBRATION_TIMEOUT_MS`に正整数のmillisecondを指定して上書きできます。全体はその12倍で打ち切り、待機中は5秒ごとに進捗を出します。
+
+| 現在の試験 | 対象IDの部分範囲 | 未検証の境界 |
+| --- | --- | --- |
+| `tests/unit/config/` | CFG-01/02、CMD-03の設定衝突 | 実型ロード、native remap、catalog、ROS entity生成 |
+| `tests/unit/codec/` | TYPE-01、SEC-01のdescriptor/値/容量 | rclnodejs値、型自動生成、schema hash、browser表現 |
+| `tests/unit/session/` | AUTH-01/02、CMD-01/02/03、FLOW-01/02、SIZE-01、LIFE-01、SEC-01の内部状態 | 本物の認証、rate、SDK、process budget、DataChannel buffer |
+| `tests/contracts/module-flow.test.ts` | 設定→codec→guard→同期publish spy、codec→byte queue | 実ROS adapter契約、最終wire envelope、実PeerConnection |
+
+この範囲の成功は受け入れID全体の合格ではありません。PRO-01/02/03のprotocol/router、QOS-01/02、NET-01、SYS-01は未実装・未実施です。ACK-01もspyの呼出を確認するだけで、実ROS APIやcontrollerの結果を示しません。§8の実ROS・Browser必須ゲートを満たすまでは、統合ブリッジの対応済み・release可能とは判定しません。
+
+buildは`.runtime/build/`、coverageは`.runtime/coverage/`へ出力します。`coverage-summary.json`でfile単位の割合、`coverage-final.json`と`lcov.info`でstatement/branch位置を確認できます。測定artifactと調査記録はGitへ含めません。ROS/browser/TURNの具体的な起動手順・timeout・後始末は、各harnessの追加時に本書へ追記します。
 
 ## 12. 採用評価の一次資料
 
-- [Node.js test runner](https://nodejs.org/api/test.html): runner候補の実行・隔離・mock機能を確認します。
-- [c8](https://github.com/bcoe/c8): `--all`による未load fileの計測とsource map対応を確認します。採用versionのinclude/excludeとthresholdは実装時に検証します。
+- [Node.js test runner](https://nodejs.org/api/test.html): 採用runnerの実行・隔離・mock機能。
+- [c8](https://github.com/bcoe/c8): `--all`による未load fileの計測とsource map対応。採用versionのinclude/excludeとthresholdを校正します。
 - [Playwright browsers](https://playwright.dev/docs/browsers): 配布browserの種類と、製品版browserとの差を対応表へ反映します。

@@ -1,6 +1,6 @@
 # ROS 2 / WebRTC DataChannel Bridge 設計検討
 
-状態: 設計案。以下の設定、API、数値は実装済み機能や実測結果を表すものではない。
+状態: 構想設計と独立モジュールの試作。実装範囲は§14に限定し、以下の接続API、対応環境、性能値を実装・検証済みとして扱わない。
 
 ## 1. 推奨方針と前提
 
@@ -67,7 +67,7 @@ flowchart LR
 | Python + rclpy + aiortc | ROS標準Python型とasyncioを利用しやすい | SDKとサーバーで言語が分かれる。executorとasyncioの所有権分離が必要 |
 | C++ + rclcpp + libdatachannel | GenericSubscription / GenericPublisherとserialized dataを扱える | MPL-2.0依存のため現方針では採用対象外。C++化が必要なら方針に適合するtransportを別途評価 |
 
-**推奨はTS構成とweriftでPoCを開始し、WebRTCライブラリをM0で確定すること。** SDKとサーバーの型・契約を統一しやすく、permissive licenseを優先する [`CONTRIBUTING.md`](../CONTRIBUTING.md) の依存方針に沿って評価できる。
+**TS構成で独立モジュールを試作し、WebRTCライブラリは§14の推移依存の制約を解決してM0で確定する。** SDKとサーバーの型・契約を統一しやすい構成を維持し、[`CONTRIBUTING.md`](../CONTRIBUTING.md) の依存方針に適合するtransportを選定する。
 
 本体のライセンスは [`Apache-2.0`](../LICENSE)。依存ライブラリと配布物のライセンス一覧は採用バージョンごとに記録し、必要な著作権・ライセンス表示を維持する。
 
@@ -286,3 +286,33 @@ M0では、次の事項を検証・確定する。
 - controller側watchdog・期限検証の契約、必要なlatency/rateと性能budget。
 
 対応環境と性能条件は、検証結果に基づいて公開する。
+
+## 14. モジュール試作の契約と残る接続境界
+
+`packages/bridge/src/`にconfig、codec、sessionの内部APIを実装している。これらは外部I/Oを持たず、Unitとモジュール結合試験で契約を確認する。ROS / WebRTCの双方向通信を満たすM0は未完了である。
+
+### 起動設定
+
+[設定loader](../packages/bridge/src/config/README.md)は[bridge.yaml](../examples/bridge.yaml)を検証し、変更できないbinding配列を返す。型loaderによる確認済み型名一覧と、ROS adapterのremap関数を注入する。公開名は保持し、writer所有権には解決済みROS名を使う。同一出力Topicへ向かうaliasで、型・QoS・access・guard・rate・配送・queueが食い違う場合は起動を拒否する。
+
+初期実装のQoS historyは`keep_last`のみ。配送設定はreliableなら有限FIFO、realtimeなら1件のlatestを必須とする。設定mapの未知field、重複key、YAML alias、独自tagを拒否し、設定文書のUTF-8 byte数とTopic数も制限する。名前は絶対ASCII名、247文字以下とし、native側のRMW検証もadapterで行う。[RMW完全Topic名の検証](https://github.com/ros2/rmw/blob/jazzy/rmw/include/rmw/validate_full_topic_name.h)
+
+### 型変換
+
+[codec](../packages/bridge/src/codec/README.md)は明示したfield descriptorを生成時にsnapshotする。64bit整数はnative側`bigint`、wire側canonical decimal string、uint8列はnative側`Uint8Array`、wire側padding付きcanonical base64に固定する。float32はbinary32へ丸めてoverflowを拒否する。string上限はUTF-8 bytesとし、孤立surrogateを拒否する。
+
+型値は欠落・未知field、配列のhole・追加property、getter等を暗黙に捨てない。commandには`allowNonFinite: false`を必須指定する。descriptor/payloadの深さ、node数、配列長、string/bytes長はfactory optionで制限する。native値をplain objectへ正規化するrclnodejs adapterと、ROS型からdescriptor / schema hashを生成する部分は未実装である。
+
+### Commandとqueue
+
+[CommandGuard](../packages/bridge/src/session/README.md)はsession、handle、leaseを再利用しないIDで管理し、Topicごとのlease時間をhandle生成時に固定する。`seq`はcanonical uint64 decimal stringとし、上限到達時は新しいhandleを取得する。受信時にseqを消費し、publish時も順序を検証する。ticketは成功・失敗を問わず1回だけ使用でき、ROS APIの例外でもseqを巻き戻さない。同じsessionの別handleで再armした場合も、同一ROS出力の旧leaseを失効させる。
+
+認可hookの後にも所有状態を再取得し、撤回済みstateを使わない。clockは副作用のない単調clockを注入する。最終検証からROS publishまでは同期処理とし、`await`を挟まない。型・値・rateの受信時／publish直前検証は上位sessionの責務である。module結合試験ではpayloadをsnapshotして待機中の外部変更を隔離するが、製品のsession routerは未実装である。
+
+`DeliveryQueue`は1 peerのencode済みenvelope bytesをcopyして保存する。latestは旧値を捨て、peer上限に新値も収まらなければ新値を捨ててdropを計測する。reliableの上限超過は待機値を解放してstreamを停止する。設定の`fifo`はqueue APIの`reliable`に対応する。dequeue後のtransport buffer、process全体budget、rate、ready gate、control優先schedulerは別途実装する。
+
+### Transport採用の制約
+
+`werift`本体がMITでも推移依存の適合確認が必要である。`werift 0.24.4`は`mediabunny`へ依存し、対象版のlicenseはMPL-2.0であるため現行の依存方針では導入しない。[weriftの依存定義](https://github.com/shinyoshiaki/werift-webrtc/blob/v0.24.4/packages/webrtc/package.json)、[mediabunny 1.45.2の配布metadata](https://registry.npmjs.org/mediabunny/1.45.2)
+
+採用可能なDataChannel実装・配布構成を確定してから、rclnodejs adapter、3channel、signaling、ブラウザSDKを接続する。Humble/JazzyのDocker環境で独立ROS nodeとの双方向通信、実ブラウザ、TURNを検証するまで、環境対応やM0完了を宣言しない。

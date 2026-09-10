@@ -1,0 +1,25 @@
+{
+  "name": "ros-webrtc-bridge",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Experimental modules for a ROS 2 WebRTC Topic bridge.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0 <23"
+  },
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('.runtime/build', {recursive:true, force:true})\" && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && c8 node --test --test-timeout=10000 .runtime/build/tests/unit/*/*.test.js .runtime/build/tests/contracts/*.test.js",
+    "test:coverage": "npm run build && node --test .runtime/build/tests/coverage/calibration.test.js"
+  },
+  "dependencies": {
+    "yaml": "2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2",
+    "c8": "12.0.0",
+    "typescript": "5.9.3"
+  }
+}

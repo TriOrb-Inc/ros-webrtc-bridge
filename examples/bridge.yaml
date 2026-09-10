@@ -1,0 +1,32 @@
+version: 1
+robot_id: robot-01
+limits:
+  max_peers: 4
+  max_message_bytes: 16384
+  max_peer_queue_bytes: 262144
+  max_channel_buffered_bytes: 65536
+topics:
+  /odom:
+    ros_type: nav_msgs/msg/Odometry
+    direction: ros_to_web
+    ros_qos:
+      reliability: best_effort
+      durability: volatile
+      history: keep_last
+      depth: 5
+    delivery: realtime
+    max_rate_hz: 20
+    queue: { policy: latest, max_messages: 1 }
+  /cmd_vel:
+    ros_type: geometry_msgs/msg/Twist
+    direction: web_to_ros
+    ros_qos:
+      reliability: reliable
+      durability: volatile
+      history: keep_last
+      depth: 1
+    delivery: realtime
+    max_rate_hz: 30
+    queue: { policy: latest, max_messages: 1 }
+    access: { publish_scope: teleop, exclusive_writer: true }
+    command_guard: { required: true, lease_ms: 250 }
