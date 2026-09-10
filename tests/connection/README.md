@@ -34,3 +34,5 @@ Gatewayの一時Bearer、TLS key/cert、TURN credentialを毎回生成します�
 検証済み構成はLinux arm64、ROS Humble/Jazzy、Fast DDS、Node 22.22.2、rclnodejs 2.2.0の同梱prebuilt、Playwright 1.63.0 / Chromium 153.0.8010.12、coturn 4.6.3です。directとTURN UDPが対象です。amd64、native addonのsource compile、TURN TCP/TLS、UDP遮断、QoS不一致、負荷・長時間試験、controller watchdogはこの結果に含みません。
 
 各実行の機密を除いた結果とbuild診断はroot `.runtime/`へ保存します。最終集計は`connection-results.json`、各distroの作業directoryにimage IDと詳細結果を保存します。失敗後の再実行は別directoryへ記録します。成否を問わずcontainerとnetworkを解放し、後始末の失敗もtest失敗として報告します。
+
+[PR CI](../../.github/workflows/ci.yml)ではGitHub-hosted `ubuntu-24.04-arm`上で、HumbleとJazzyを別jobへ分離してこのharnessを実行します。各jobで`CONNECTION_DISTROS`を1 distroに限定し、directとTURN UDPの両方を必須にします。続けて同じDocker imageで独立native試験も行います。ChecksのJob Summaryで匿名の接続結果を、jobログでimage buildの診断を確認できます。詳細な保持範囲は[TESTS.md §8](../../TESTS.md#8-ciと対応matrix)を参照してください。

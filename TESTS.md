@@ -135,7 +135,7 @@ CMD-01は設計書のmonotonic clockによる期限境界を検証します。br
 - `contents: read`だけを付与し、checkout credentialを保持しません。CIで長期credentialを必要とせず、接続試験のcredential・TLS鍵はharnessが実行時生成します。PRのmerge commitをcheckoutしてbaseとの組合せを検証します。
 - jobと長時間工程にtimeoutを設けます。通常終了・失敗時はharnessが資源を解放し、強制cancel時に残る資源はjob専用VMの破棄で回収します。
 
-PRのChecksから各jobのログとJob Summaryを確認できます。coverage-summaryと匿名の接続結果をSummaryへ、credential生成前のDocker buildログをjobログへ明示したpathだけから出力します。`.runtime/`全体、秘密ファイル、Gateway/TURNのログは収集しません。結果生成前の失敗はSummaryに結果なしと表示し、jobログから診断します。生成済み結果だけでは全job成功と判定しません。
+PRのChecksから各jobのログとJob Summaryを確認できます。coverage-summaryと匿名の接続結果をSummaryへ、credentialを渡さないDocker image buildのログをjobログへ明示したpathだけから出力します。`.runtime/`全体、秘密ファイル、Gateway/TURNのログは収集しません。結果生成前の失敗はSummaryに結果なしと表示し、jobログから診断します。生成済み結果だけでは全job成功と判定しません。
 
 保存期間はリポジトリのActionsログ保持設定に従います。生coverageや接続結果のダウンロード用artifactは未実装です。必要な詳細結果は§11の同じコマンドで再現し、ローカル`.runtime/`から取得します。
 
