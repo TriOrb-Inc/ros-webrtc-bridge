@@ -323,4 +323,6 @@ PoCでは[werift core](../vendor/werift-datachannel/README.md)の通常entryか�
 
 認証は実行時注入する単一Bearerと、subscribe公開名・publish scopeの固定allowlistである。未指定権限は拒否し、認証前にはPeerConnectionを作らない。TLSを必須とし、SDP/request/peer数/交渉時間を制限する。[CLIの設定](../packages/bridge/src/app/README.md)と[接続試験](../tests/connection/README.md)に再現手順を記載する。
 
-ブラウザSDK、JWT/多ユーザーのidentity管理、外向きrendezvous、TURN TCP/TLS・UDP遮断、QoS不一致診断、性能・長時間試験、CI、controller側watchdogは未完了である。これらを接続PoCの成功で代替しない。
+ブラウザSDK、JWT/多ユーザーのidentity管理、外向きrendezvous、TURN TCP/TLS・UDP遮断、QoS不一致診断、性能・長時間試験、controller側watchdogは未完了である。これらを接続PoCの成功で代替しない。
+
+PRの作成・再オープン・ブランチ更新では、[CI](../.github/workflows/ci.yml)が単体・結合・カバレッジ校正・transport試験、およびHumble/Jazzy arm64の実ROS・Chromium direct/TURN UDP試験を実行する。nightly、追加対応軸、release試験は[TESTS.md](../TESTS.md#8-ciと対応matrix)の後続計画とする。

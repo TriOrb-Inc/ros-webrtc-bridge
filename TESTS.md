@@ -1,6 +1,6 @@
 # テスト方針
 
-状態: Unit・結合試験、実ROS、実Chromium、direct / TURN UDPの接続試験を実装しています。Humble/Jazzyのarm64で検証済みです。CI、amd64、通信障害・性能測定等は未完了で、全ゲートの達成とは扱いません。現在の実行手順と範囲は§11に記載します。
+状態: Unit・結合試験、実ROS、実Chromium、direct / TURN UDPの接続試験を実装しています。Humble/Jazzyのarm64で検証済みです。PRのCIを実装しています。amd64、通信障害・性能測定等は未完了で、全ゲートの達成とは扱いません。現在の実行手順と範囲は§11に記載します。
 
 共通開発規約とカバレッジ必須条件の正本は [CONTRIBUTING.md](CONTRIBUTING.md)、製品の契約は [docs/design.md](docs/design.md)、セキュリティ境界は [SECURITY.md](SECURITY.md) とします。本書は、それらをどの環境・観測・合格条件で検証するかを定めます。仕様を変更する場合は関連文書も同時に更新します。
 
@@ -126,7 +126,26 @@ CMD-01は設計書のmonotonic clockによる期限境界を検証します。br
 
 ## 8. CIと対応matrix
 
-以下は予定です。実装済み機能の必須jobが環境不足で動かなければ、その変更は未検証です。文書だけの変更はリンク・構文・整合性・差分確認に限定し、runtime coverageを要求しません。
+### 現在のPR workflow
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml)は`pull_request`の`opened`・`reopened`・`synchronize`で起動します。新しいcommitのpushは`synchronize`に対応します。base branch・変更pathによる絞り込みはせず、draft PRと文書だけの変更でも全jobを実行します。PR番号ごとのconcurrencyで古い実行をキャンセルし、最新変更を検証します。
+
+- Unit job: Node 22.22.2、`npm ci --ignore-scripts`、transport生成、typecheck、Unit/Contractとファイル別C0/C1 100%、計測校正、実DataChannel試験。
+- ROS job: Humble／Jazzyを別々のGitHub-hosted `ubuntu-24.04-arm` VMで実行。Dockerでdistroを分離し、独立native試験とChromiumのdirect / TURN UDPを検証。片方の失敗で他方の結果を省略しません。
+- `contents: read`だけを付与し、checkout credentialを保持しません。CIで長期credentialを必要とせず、接続試験のcredential・TLS鍵はharnessが実行時生成します。PRのmerge commitをcheckoutしてbaseとの組合せを検証します。
+- jobと長時間工程にtimeoutを設けます。通常終了・失敗時はharnessが資源を解放し、強制cancel時に残る資源はjob専用VMの破棄で回収します。
+
+PRのChecksから各jobのログとJob Summaryを確認できます。coverage-summaryと匿名の接続結果をSummaryへ、credential生成前のDocker buildログをjobログへ明示したpathだけから出力します。`.runtime/`全体、秘密ファイル、Gateway/TURNのログは収集しません。結果生成前の失敗はSummaryに結果なしと表示し、jobログから診断します。生成済み結果だけでは全job成功と判定しません。
+
+保存期間はリポジトリのActionsログ保持設定に従います。生coverageや接続結果のダウンロード用artifactは未実装です。必要な詳細結果は§11の同じコマンドで再現し、ローカル`.runtime/`から取得します。
+
+このworkflowを含むPRから適用され、既存PRへ遡って自動追加されるものではありません。全PRへ共通適用するにはbase branchへmergeします。fork PRはGitHub側の実行承認設定、merge conflictがあるPRはGitHubの実行条件に従います。[PRイベントの条件](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request)
+
+CIの自動実行と、失敗時にmergeを禁止するbranch protection / rulesetは別設定です。必須チェックの管理設定はこのworkflowでは変更しません。
+
+### 後続のgateと対応目標
+
+以下は現行PR workflowに追加する目標です。lint、障害注入、nightly、controller、releaseの全ゲートは未整備です。実装済み機能の必須jobが環境不足で動かなければ、その変更は未検証です。
 
 | 実行契機 | 必須ゲート | 実行範囲 |
 | --- | --- | --- |
@@ -136,7 +155,7 @@ CMD-01は設計書のmonotonic clockによる期限境界を検証します。br
 | controller併用例の実機試験 | SYS-01、controller固有のwatchdog/gate条件 | core nightlyとは別job。併用例のrelease前とcontroller契約変更時は必須 |
 | release候補 | 候補commit・lockfile・配布artifactを固定した全必須試験、決定済み性能budget、clean install、依存/license確認 | 宣言する全環境・経路。artifactのhashを記録し、過去commitの成功を流用しない |
 
-対応目標はROS 2 HumbleとJazzyです。PRとreleaseの基準環境はUbuntu 22.04 / ROS 2 Humble、およびUbuntu 24.04 / ROS 2 Jazzyの両方とし、Fast DDS / Linux amd64 / Chromiumを共通の初期構成とします。各環境をDockerで再現し、Node、rclnodejs、RMW、transport、browserはM0で互換性を確認したversionへ固定します。現時点の対応済み宣言ではありません。
+対応目標はROS 2 HumbleとJazzyです。PRとreleaseの基準環境はUbuntu 22.04 / ROS 2 Humble、およびUbuntu 24.04 / ROS 2 Jazzyの両方とし、Fast DDS / Linux amd64 / Chromiumを対応目標とします。現行PR CIは検証済みのarm64を基準とし、amd64は別途実測して追加します。各環境をDockerで再現し、Node、rclnodejs、RMW、transport、browserはM0で互換性を確認したversionへ固定します。現時点の対応済み宣言ではありません。
 
 | 環境・軸 | 導入順序と昇格条件 |
 | --- | --- |
@@ -144,7 +163,7 @@ CMD-01は設計書のmonotonic clockによる期限境界を検証します。br
 | Ubuntu 22.04 + Humble + Fast DDS + amd64 + Chromium | M0で双方向PoC、M1以降は基準PR job、release必須 |
 | Ubuntu 24.04 + Jazzy + Fast DDS + amd64 + Chromium | M0で双方向PoC、M1以降は基準PR job、release必須 |
 | Firefox / Playwright WebKit | M2までにBrowser E2Eを追加し対応範囲を明記。Playwrightのpatched Firefoxと製品版Firefox、WebKitと実Safariを区別。製品版対応は別途実機確認 |
-| Linux arm64 | 対象端末またはnative runnerでbuild/実ROS/E2Eを確認して対応へ昇格。emulationだけで性能保証しない |
+| Linux arm64 | 現行PR CIの基準。Humble/Jazzyのbuild・実ROS・E2Eをnative runnerで実行。性能保証は別途評価 |
 | Cyclone DDS / 追加ROS distro | 需要とrunner確保を条件に実ROS契約/QoS試験を追加。未実施のRMW/distroを対応表へ入れない |
 | TURN UDP/TCP/TLS・UDP遮断 | M0はTURN成立を確認。M2は経路別結果を公開し、対応宣言した経路をrelease必須化 |
 
@@ -168,7 +187,7 @@ M0の測定から、M1開始前に暫定budget、M2 release候補の計測前に
 
 flaky testにはissue、担当、原因仮説、修正期限を付けます。隔離する場合もcoverageや必須受入れ条件から黙って外さず、同等の決定的な検証がなければ対応するreleaseゲートは未達です。認可・command期限・資源上限の失敗を許容済みとしてreleaseしません。
 
-結果は「合格」「不合格」「skip」「未実装」「未実施」を区別します。skipにも理由を付け、必須条件の合格へ数えません。対応表、coverage対象と除外、受入れIDごとの結果、残るリスクを同じcommitに結び付けます。artifact保存期間と失敗時の取得手順はCI導入時に追記します。
+結果は「合格」「不合格」「skip」「未実装」「未実施」を区別します。skipにも理由を付け、必須条件の合格へ数えません。対応表、coverage対象と除外、受入れIDごとの結果、残るリスクを同じcommitに結び付けます。PR CIの結果保持と失敗時の確認手順は§8に記載します。
 
 ## 11. 実装順序と完了条件
 
@@ -213,9 +232,9 @@ npm run test:connection
 
 環境の隔離、credential生成・削除、timeout、調査用のmatrix指定は[接続試験](tests/connection/README.md)、ROS単独試験は[ROS試験](tests/ros/README.md)を参照してください。検証済み構成はHumble/Ubuntu 22.04とJazzy/Ubuntu 24.04、Fast DDS、arm64、Node 22.22.2、rclnodejs 2.2.0の同梱prebuilt、Chromium 153.0.8010.12、coturn 4.6.3です。ブラウザSDKは未実装なのでraw clientを用います。
 
-この範囲の成功は受け入れID全体の合格ではありません。QOS-01/02の不一致・latched履歴、NET-01のTCP/TLS・UDP遮断、SYS-01、性能・負荷、amd64、CIは未検証または未実装です。ACK-01は実ROS observerまで確認しますが、controller完了を意味しません。§8の全必須ゲートとrelease条件の達成とは区別します。
+この範囲の成功は受け入れID全体の合格ではありません。QOS-01/02の不一致・latched履歴、NET-01のTCP/TLS・UDP遮断、SYS-01、性能・負荷、amd64は未検証または未実装です。ACK-01は実ROS observerまで確認しますが、controller完了を意味しません。§8の全必須ゲートとrelease条件の達成とは区別します。
 
-buildは`.runtime/build/`、coverageは`.runtime/coverage/`へ出力します。`coverage-summary.json`でfile単位の割合、`coverage-final.json`と`lcov.info`でstatement/branch位置を確認できます。測定artifactと調査記録はGitへ含めません。ROS/browser/TURNの具体的な起動手順・timeout・後始末は、各harnessの追加時に本書へ追記します。
+buildは`.runtime/build/`、coverageは`.runtime/coverage/`へ出力します。`coverage-summary.json`でfile単位の割合、`coverage-final.json`と`lcov.info`でstatement/branch位置を確認できます。測定artifactと調査記録はGitへ含めません。ROS/browser/TURNの具体的な起動手順・timeout・後始末は、各harnessのREADMEを参照してください。
 
 ## 12. 採用評価の一次資料
 

@@ -1,0 +1,213 @@
+name: CI
+
+# draftを含め、すべてのPR作成・再開・更新を検証する。
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  unit:
+    name: Unit and transport / arm64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - name: Announce environment setup
+        timeout-minutes: 1
+        run: echo 'Checkout and Node setup may be silent; each action has a timeout of at most 5 minutes.'
+
+      # actions本体はMIT。versionとbundleの依存ライセンスを固定SHAの一次資料で確認する。
+      - name: Check out pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        timeout-minutes: 3
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        timeout-minutes: 5
+        with:
+          node-version: '22.22.2'
+          architecture: arm64
+          package-manager-cache: false
+
+      - name: Install dependencies without native scripts
+        timeout-minutes: 6
+        run: |
+          echo 'npm ci may be silent during downloads; bounded to 300 seconds.'
+          timeout --kill-after=10s 300s npm ci --ignore-scripts
+
+      - name: Prepare DataChannel transport
+        timeout-minutes: 3
+        run: |
+          echo 'Transport materialization may be silent; bounded to 120 seconds.'
+          timeout --kill-after=10s 120s npm run prepare:transport
+
+      - name: Typecheck
+        timeout-minutes: 3
+        run: |
+          echo 'TypeScript may be silent while checking; bounded to 120 seconds.'
+          timeout --kill-after=10s 120s npm run typecheck
+
+      - name: Unit and contract tests with full coverage
+        timeout-minutes: 6
+        run: |
+          echo 'Build and test startup may be silent; bounded to 300 seconds.'
+          timeout --kill-after=10s 300s npm test
+
+      - name: Verify coverage measurement
+        timeout-minutes: 7
+        run: |
+          echo 'Coverage calibration has independent deadlines and progress; bounded to 360 seconds.'
+          timeout --kill-after=10s 360s npm run test:coverage
+
+      - name: Verify DataChannel transport package
+        timeout-minutes: 3
+        run: |
+          echo 'Transport smoke startup may be silent; bounded to 120 seconds.'
+          timeout --kill-after=10s 120s npm run test:transport
+
+      # 推移依存のlicense確認が完了したartifact actionは未導入。匿名summaryだけを掲載する。
+      - name: Summarize coverage results
+        if: ${{ always() }}
+        timeout-minutes: 2
+        run: |
+          {
+            echo '### Unit coverage'
+            if [[ -f .runtime/coverage/coverage-summary.json ]]; then
+              echo '```json'
+              cat .runtime/coverage/coverage-summary.json
+              echo
+              echo '```'
+            else
+              echo 'Coverage summary was not produced. Check preceding step outcomes; coverage is not confirmed.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  ros:
+    name: ROS ${{ matrix.distro }} / Chromium / direct and TURN UDP / arm64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [humble, jazzy]
+    steps:
+      - name: Announce environment setup
+        timeout-minutes: 1
+        run: echo 'Checkout and Node setup may be silent; each action has a timeout of at most 5 minutes.'
+
+      - name: Check out pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        timeout-minutes: 3
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        timeout-minutes: 5
+        with:
+          node-version: '22.22.2'
+          architecture: arm64
+          package-manager-cache: false
+
+      - name: Install dependencies without native scripts
+        timeout-minutes: 6
+        run: |
+          echo 'npm ci may be silent during downloads; bounded to 300 seconds.'
+          timeout --kill-after=10s 300s npm ci --ignore-scripts
+
+      - name: Prepare DataChannel transport
+        timeout-minutes: 3
+        run: |
+          echo 'Transport materialization may be silent; bounded to 120 seconds.'
+          timeout --kill-after=10s 120s npm run prepare:transport
+
+      - name: Install Chromium and system dependencies
+        timeout-minutes: 16
+        run: |
+          echo 'Chromium and apt downloads may be silent; bounded to 900 seconds.'
+          timeout --kill-after=10s 900s npx --no-install playwright-core install --with-deps chromium
+
+      - name: Real ROS and browser connections
+        id: connection
+        timeout-minutes: 31
+        env:
+          CONNECTION_DISTROS: ${{ matrix.distro }}
+          CONNECTION_TURN: '1'
+        run: |
+          echo 'Docker build may be silent; harness reports progress and enforces deadlines. Overall limit: 1800 seconds.'
+          timeout --kill-after=15s 1800s npm run test:connection
+
+      - name: Independent native ROS contract
+        if: ${{ !cancelled() && steps.connection.outcome != 'skipped' }}
+        timeout-minutes: 4
+        env:
+          TEST_DISTRO: ${{ matrix.distro }}
+        run: |
+          echo 'Native ROS startup may be silent; container and test deadlines are bounded to 180 seconds.'
+          # 接続試験が生成した同じimageを使い、hostや他jobのDDS graphから隔離する。
+          native_status=0
+          timeout --kill-after=10s 180s docker run --rm --init --network none \
+            --env ROS_DOMAIN_ID=74 --env ROS_LOCALHOST_ONLY=1 \
+            "ros-webrtc-bridge-test:${TEST_DISTRO}" \
+            bash -lc 'source "/opt/ros/${ROS_DISTRO}/setup.bash" && node --test --test-timeout=60000 .runtime/build/tests/ros/native.test.js' \
+            || native_status=$?
+          # TAPやpayloadの代わりに固定fieldの匿名結果だけをJob Summaryへ渡す。
+          NATIVE_TEST_EXIT_CODE="$native_status" node --input-type=module <<'NODE'
+          import { mkdirSync, writeFileSync } from 'node:fs';
+          mkdirSync('.runtime', { recursive: true });
+          writeFileSync('.runtime/native-result.json', JSON.stringify({
+            distro: process.env.TEST_DISTRO,
+            architecture: process.arch,
+            status: Number(process.env.NATIVE_TEST_EXIT_CODE) === 0 ? 'PASS' : 'FAIL'
+          }, null, 2));
+          NODE
+          exit "$native_status"
+
+      # summaryとjob logはrepositoryの保持設定に従う。秘密を含む.runtime全体は掲載しない。
+      - name: Summarize verification and build diagnostics
+        if: ${{ always() }}
+        timeout-minutes: 2
+        run: |
+          shopt -s nullglob
+          result_files=(.runtime/connection-results.json .runtime/connection-*/result.json .runtime/native-result.json)
+          found=0
+          {
+            echo '### ROS and browser verification'
+            for result_file in "${result_files[@]}"; do
+              if [[ -f "$result_file" ]]; then
+                found=1
+                echo "#### ${result_file}"
+                echo '```json'
+                cat "$result_file"
+                echo
+                echo '```'
+              else
+                echo "${result_file} was not produced. Its verification outcome is not confirmed; check preceding steps."
+              fi
+            done
+            if [[ "$found" == 0 ]]; then
+              echo 'No verification result was produced. Check preceding step outcomes; ROS/browser verification is not confirmed.'
+            fi
+            echo 'Result files report executed assertions. Overall success also requires all job steps and cleanup to succeed.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Docker image buildだけをallowlistで表示する。鍵生成・gateway/peer/TURNログは対象外。
+          build_logs=(.runtime/connection-*/build.log)
+          if [[ "${#build_logs[@]}" == 0 ]]; then
+            echo 'No Docker build log was produced; the connection job may not have reached image build.'
+          fi
+          for build_log in "${build_logs[@]}"; do
+            echo 'Docker image build diagnostic log follows.'
+            cat "$build_log"
+          done

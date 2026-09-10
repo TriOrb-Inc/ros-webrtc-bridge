@@ -37,7 +37,9 @@ npm run test:connection
 
 Humble／Jazzyごとに専用networkでGateway、独立rclpyノード、coturnを起動し、String／Twist、期限切れcommand拒否、再接続、選択ICE候補を実測します。成否を問わずcontainer・network・一時credentialを解放します。[接続試験の前提と設定](tests/connection/README.md)を確認してください。
 
-常駐起動は、ROS環境でnative依存を準備し、[起動設定](packages/bridge/src/app/README.md)を注入して`npm run bridge`を使います。ブラウザSDK、外向きrendezvous、多ユーザー認証、CI、通信障害・性能試験は未整備です。対応範囲と残件は[設計書 §14](docs/design.md#14-モジュール試作の契約と残る接続境界)に記載しています。
+常駐起動は、ROS環境でnative依存を準備し、[起動設定](packages/bridge/src/app/README.md)を注入して`npm run bridge`を使います。ブラウザSDK、外向きrendezvous、多ユーザー認証、通信障害・性能試験は未整備です。対応範囲と残件は[設計書 §14](docs/design.md#14-モジュール試作の契約と残る接続境界)に記載しています。
+
+PR作成・再オープン・PRブランチへの追加pushでは、[GitHub Actions](.github/workflows/ci.yml)が単体・結合・カバレッジ・transport試験と、Humble／Jazzyの実ROS・Chromium・TURN UDP試験を実行します。draft PRと文書変更も対象です。[CIの範囲と結果の確認](TESTS.md#8-ciと対応matrix)を参照してください。
 
 ## 開発・運用文書
 
