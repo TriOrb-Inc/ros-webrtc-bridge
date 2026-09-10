@@ -2,7 +2,7 @@
 
 `parseBridgeConfig(yaml, options)`で[設定例](../../../../examples/bridge.yaml)を読み、凍結した`BridgeConfig`を返します。エラー時は位置と理由を含む`ConfigError`を投げ、設定を部分的に返しません。ROS entityを生成する処理は含みません。
 
-`options.availableTypes`は型loaderが確認済みの`package/msg/Message`名の配列です。試作では呼出側が明示します。ROS graphにpublisherがまだ存在しないことは拒否理由にしません。自動型ロード、binding生成、JSON Schema、catalog生成は未実装です。
+`options.availableTypes`は型loaderが確認済みの`package/msg/Message`名の配列で、呼出側が明示します。CLIでは`app`と`ros`がbinding生成済み型を確認してregistryを構築し、`router`が認可済みcatalogを返します。ROS graphにpublisherがまだ存在しないことは拒否理由にしません。設定JSON Schemaの配布は未実装です。
 
 `topics`のkeyがWeb公開名です。`ros_topic`省略時はkeyをROS接続先にし、明示時は別名として扱います。`options.resolveTopic`にROS adapterのremap・正規化処理を注入し、その出力を`rosTopic`として返します。省略時は名前をそのまま使います。Web名はremapで変更しません。
 

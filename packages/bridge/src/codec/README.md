@@ -8,7 +8,7 @@
 
 呼び出し側が明示した`Field` descriptorでboolean、string、8/16/32/64bit整数、float32/64、uint8列、固定長・bounded配列、nested objectを変換します。descriptorは信頼できる開発者・型生成器が構築する内部APIです。長さ・整数width・深さ等の不変条件はfactoryで検証し、snapshotによって生成後の変更から隔離します。外部から任意のdescriptorを受け付けるAPIやJSON Schema validatorではありません。
 
-ROSの型ロード、rclnodejs固有値の正規化、型名検証、schema hash生成、wire envelopeのJSON parse/stringify、transport接続、ブラウザSDKは未実装です。Nodeの`Buffer`を使っており、ブラウザ対応済みとは扱いません。
+ROSの型ロード・rclnodejs値の正規化は隣接`ros`、schema hashは`app`、wire envelopeは`router`、接続は`transport`が担当します。codecはこれらをimportしません。ブラウザSDKは未実装で、Nodeの`Buffer`を使う本codecをブラウザ対応済みとは扱いません。
 
 ```typescript
 import { createCodec } from './index.js';
@@ -42,6 +42,6 @@ codec.decode({ counter: '42', label: '00123' }); // {counter:42n, label:'00123'}
 
 ## 目標・関連
 
-次の段階では実ROSの型生成器とadapterを接続し、Humble/Jazzyの独立nodeから得る値で同じ契約を検証します。wire schema IDの正規化・hash契約はその実装と合わせて定めます。
+Humble/Jazzyの独立nodeとのString/Twist契約を接続試験で検証しています。全ROS型・全bounded型のnative互換性は別途評価が必要です。schema IDの正規化・hash契約は`app`のREADMEを参照してください。
 
 [設計書 §8](../../../../docs/design.md#8-ros型とserialization)と[テスト方針](../../../../TESTS.md)が上位仕様です。`tests/unit/codec/`はTYPE-01の単体範囲、descriptor検証、SEC-01のtree上限を扱います。encode/decodeは独立したgolden期待値で検証し、実ROS・browserでの互換性は別途確認します。

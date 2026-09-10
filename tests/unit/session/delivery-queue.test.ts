@@ -114,3 +114,16 @@ test('SEC-01: stream識別子の末尾改行を拒否し登録を残さない', 
   }
   assert.deepEqual(q.stats(), { bytes: 0, streams: 0, dropped: 0n });
 });
+
+test('FLOW-01: peekはcopyを返しdequeue前のbyte占有とpayloadを維持', () => {
+  const q = queue();
+  q.register('s', 'reliable', 1);
+  assert.equal(q.peek('s'), undefined);
+  q.enqueue('s', Uint8Array.of(42));
+  q.peek('s')![0] = 0;
+  assert.equal(q.stats().bytes, 1);
+  assert.deepEqual(q.dequeue('s'), Uint8Array.of(42));
+  q.enqueue('s', Uint8Array.of(42));
+  assert.throws(() => q.enqueue('s', Uint8Array.of(43)), /slow_consumer/);
+  assert.throws(() => q.peek('s'), /slow_consumer/);
+});

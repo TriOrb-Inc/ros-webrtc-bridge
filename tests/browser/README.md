@@ -1,0 +1,15 @@
+# 実Chromium接続試験
+
+`connection.ts`の`verifyBrowserConnection({url, credential, iceServers?, relayOnly?, timeoutMs?})`をDocker接続runnerから呼びます。URLはHTTPS、credentialは実行時注入、timeoutMsの既定は120秒です。この期限はbrowser起動・context/page生成・health確認・scenario全体へ共通適用します。自己署名証明書を持つ隔離Gatewayへ接続するため、試験contextだけで証明書エラーを許容します。credential、SDP、ICE接続情報、payloadはlog/reportに残しません。
+
+呼出元はROS adapterを起動し、独立rclpy peerの`in/out/cmd_vel/observed`を公開名`/input`、`/output`、`/command`、`/observed`へ対応付けます。Stringはそのままecho、Twistは全6fieldのJSON Stringとしてobservedに返す契約です。command leaseは250msを使用します。
+
+実ブラウザがoffererとなり、固定3DataChannelを生成します。ICE gathering後にBearer付き`POST /offer`を送り、answer適用・channel open・hello後にraw wire操作を始めます。SDKによる入力検証には依存しません。応答がcontrol、購読String/observedがreliable上に届くことも確認します。受信queueは1000件、各待機は短いpollと期限を持ちます。
+
+初回接続と2回の再接続で、固有markerのString echo、Twist全fieldの一致、期限切れlease拒否を確認します。再接続後は実際の旧epochを使ったpublish拒否も確認します。拒否試験は前後の正常commandを独立ROS対向nodeで観測し、正常sampleの残留を回収した後、400msの観測windowに新規observed messageがないことを要求します。lease時刻はブラウザとGatewayの時計原点を比較しません。
+
+Twistの値は実行ごとの乱数nonceとsample番号を正確に表現できる有限値へ埋め込み、direct/relay間でも再使用しません。全6fieldの比較はJSON key順に依存しません。拒否したTwistのfingerprintを保持し、400msのwindow後も全onmessageで監視するため、後続の正常対照待ちやsettle中に届いた違法sampleも失敗になります。接続終了後の無期限なDDS遅着保証を表す試験ではありません。
+
+`getStats()`の選択candidate pairからlocal candidate typeを取得し、relayOnlyなら`relay`を必須にします。reportはbrowser version、接続確立時間、candidate type、再接続回数、PASS項目だけです。Node側は4秒ごとに状態を標準出力へ出し、失敗時も全PeerConnectionとChromiumを解放します。所有するBrowserServerのcloseを3秒で制限し、停止時は所有process groupへ強制終了を適用します。kill要求だけで終了済みとせず、所有childの終了を最大3秒待って確認します。終了を確認できなければ試験失敗です。
+
+このhelper単独は成功した実測結果を表しません。実行結果はDocker接続runnerがROS distro・TURN有無と合わせて記録します。

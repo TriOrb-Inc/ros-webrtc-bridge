@@ -14,4 +14,4 @@ Topic別の起動設定`command_guard.lease_ms`は`openHandle(sessionId, topic, 
 
 `DeliveryQueue`は`maxStreams`、`maxBytes`、`maxMessageBytes`と、streamごとの`maxMessages`を必須指定します。`latest`の件数は1だけ許可し、更新時に旧値を破棄します。peerの残byteに収まらない新値も破棄し`false`を返します。`reliable`超過時は待機payloadを解放してstreamを停止し、以降も`slow_consumer`を返します。復旧には`closeStream`と明示再登録が必要です。stream閉鎖時の旧ID拒否・再利用禁止は上位sessionの責務です。
 
-queueはenvelopeを含むencode済みの非空`Uint8Array`をcopyして保持します。dropは累積`bigint`です。dequeue後のtransport buffer、process全体budget、control優先scheduler、rate、native callbackの滞留制御は未実装です。これらを統合した実ROS/browserでの評価が必要です。
+queueはenvelopeを含むencode済みの非空`Uint8Array`をcopyして保持します。dropは累積`bigint`です。control優先とrateは隣接`router`、dequeue後のbufferは`transport`が制限します。process全体budgetとnative callbackの滞留制御は未実装で、長時間・過負荷の評価が必要です。

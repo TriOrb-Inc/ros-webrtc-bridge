@@ -1,0 +1,18 @@
+[
+  {
+    "file": "lib/webrtc/src/transport/sctp.js",
+    "reason": "Preserve DCEP unordered bit for partial reliability (RFC 8832 section 5.1).",
+    "beforeSha256": "1acd0126b3dae5f62fd48e57bb5e81cd93277546e34806731fa60f381045b831",
+    "afterSha256": "7843052b6da9f2f9fcb8e0ee204e038582c5a2c3775b7f9a666e49edb44cb793",
+    "replacements": [
+      {
+        "before": "channelType = 1;",
+        "after": "channelType |=1;"
+      },
+      {
+        "before": "channelType = 2;",
+        "after": "channelType |=2;"
+      }
+    ]
+  }
+]

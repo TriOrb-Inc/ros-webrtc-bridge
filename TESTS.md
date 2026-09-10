@@ -1,6 +1,6 @@
 # テスト方針
 
-状態: 独立モジュールのUnit・結合試験とrunnerを実装済み。ROS / browser / TURN、CI、性能測定は未実施で、M0全体の終了条件は未達です。現在の実行手順と検証範囲は§11に記載します。
+状態: Unit・結合試験、実ROS、実Chromium、direct / TURN UDPの接続試験を実装しています。Humble/Jazzyのarm64で検証済みです。CI、amd64、通信障害・性能測定等は未完了で、全ゲートの達成とは扱いません。現在の実行手順と範囲は§11に記載します。
 
 共通開発規約とカバレッジ必須条件の正本は [CONTRIBUTING.md](CONTRIBUTING.md)、製品の契約は [docs/design.md](docs/design.md)、セキュリティ境界は [SECURITY.md](SECURITY.md) とします。本書は、それらをどの環境・観測・合格条件で検証するかを定めます。仕様を変更する場合は関連文書も同時に更新します。
 
@@ -27,20 +27,21 @@
 
 Unitは高速に多数の順序・境界を探索し、E2Eは主要な利用者経路と境界の接続を確認します。全組合せをE2Eへ重複実装しません。ただし認可・期限・資源解放はUnitだけで完了させません。
 
-runnerはNode.js 22の`node:test`、coverageは`c8 12.0.0`を採用しています。TypeScript 5.9.3でsource mapを生成し、未importファイルと未実行分岐を含めて検査します。browser自動化のPlaywrightは候補段階です。native addon、実WebRTC、対応browserの評価は未実施です。
+runnerはNode.js 22の`node:test`、coverageは`c8 12.0.0`を採用しています。TypeScript 5.9.3でsource mapを生成し、未importファイルと未実行分岐を含めて検査します。browser自動化は`playwright-core 1.63.0`を採用し、Chromium 153.0.8010.12で実WebRTCを検証しています。
 
 ## 3. Fixtureと独立した期待値
 
-現在は`tests/unit/`、`tests/contracts/`、`tests/coverage/`を使用します。その他は後続の配置案です。
+現在は`tests/unit/`、`tests/contracts/`、`tests/coverage/`、`tests/ros/`、`tests/browser/`、`tests/connection/`を使用します。network障害と性能専用directoryは後続の配置案です。
 
 ```text
 packages/*/src/<module>/       # 実装と内部API文書
 tests/unit/<module>/           # config / codec / session
-tests/contracts/              # 現在はmodule結合。protocol/adapter/SDKは後続
+tests/contracts/              # module結合。SDKは後続
 tests/coverage/               # 計測設定の独立校正
 tests/fixtures/               # 手で確認したwire値、config、型定義
 tests/ros/                    # 独立ROS publisher/subscriberとintegration
 tests/browser/                # browserから実ROSまでのE2E
+tests/connection/             # Docker隔離・direct/TURN matrixと後始末
 tests/network/                # TURN・障害注入・再接続
 tests/performance/            # 固定workloadと集計
 ```
@@ -181,23 +182,38 @@ flaky testにはissue、担当、原因仮説、修正期限を付けます。�
 
 ```bash
 npm ci --ignore-scripts
+npm run prepare:transport
 npm run typecheck
 npm test
 npm run test:coverage
+npm run test:transport
 ```
 
-`npm test`はbuild後、Unitとモジュール結合試験を実行し、全runtime 9ファイルそれぞれのstatement / branch / function / line 100%を必須とします。テストは個別10秒のtimeoutを持ち、通常は数秒以内に完了します。型宣言`.d.ts`、外部依存、生成JS、テスト/harnessは分母に含めません。除外による未実装機能の合格扱いはしません。
+`npm test`はbuild後、Unitとモジュール結合試験を実行し、自前runtime全ファイルそれぞれのstatement / branch / function / line 100%を必須とします。テストは個別10秒のtimeoutを持ち、通常は数秒以内に完了します。型宣言`.d.ts`、外部依存、生成JS、テスト/harnessは分母に含めません。weriftの生成物は外部実装として対象外ですが、`npm run test:transport`で固定patchを含む実DataChannel送受信を検証します。
 
 `npm run test:coverage`は計測設定の校正です。隔離したTypeScript fixtureで、source map、未実行分岐、未importファイル、複数processの計測統合を確認します。意図的にcoverage不足にした子processの失敗をassertし、親testが成功すれば校正合格です。製品コードの閾値は下げません。子processのtimeoutは既定30秒で、`COVERAGE_CALIBRATION_TIMEOUT_MS`に正整数のmillisecondを指定して上書きできます。全体はその12倍で打ち切り、待機中は5秒ごとに進捗を出します。
 
 | 現在の試験 | 対象IDの部分範囲 | 未検証の境界 |
 | --- | --- | --- |
-| `tests/unit/config/` | CFG-01/02、CMD-03の設定衝突 | 実型ロード、native remap、catalog、ROS entity生成 |
-| `tests/unit/codec/` | TYPE-01、SEC-01のdescriptor/値/容量 | rclnodejs値、型自動生成、schema hash、browser表現 |
-| `tests/unit/session/` | AUTH-01/02、CMD-01/02/03、FLOW-01/02、SIZE-01、LIFE-01、SEC-01の内部状態 | 本物の認証、rate、SDK、process budget、DataChannel buffer |
-| `tests/contracts/module-flow.test.ts` | 設定→codec→guard→同期publish spy、codec→byte queue | 実ROS adapter契約、最終wire envelope、実PeerConnection |
+| `tests/unit/config/` | CFG-01/02、CMD-03の設定衝突 | native境界はROS試験 |
+| `tests/unit/codec/` | TYPE-01、SEC-01のdescriptor/値/容量 | 全ROS型のnative互換性 |
+| `tests/unit/session/`、`router/` | AUTH、CMD、FLOW、SIZE、LIFE、PROの状態・wire境界 | 負荷、native滞留、SDK |
+| `tests/unit/ros/`、`app/` | descriptor、64bit/bytes、hash、起動/終了、実HTTPSと認証 | 多ユーザーidentity、全ROS型 |
+| `tests/unit/transport/`、`signaling/` | 3channel属性、SDP/message容量、待機中取消、認証前拒否、peer解放 | 実ネットワーク障害 |
+| `tests/contracts/module-flow.test.ts` | 設定→codec→guard→同期publish spy、codec→byte queue | 独立ROS観測は下記 |
+| `tests/ros/native.test.ts` | String/Twist、連鎖remap、実entity・終了 | QoS不一致、全型、性能 |
+| `tests/browser/`、`tests/connection/` | 実wire/String/Twist、CMD-01/02、ACK-01、NET-01 UDP、再接続 | TURN TCP/TLS、UDP遮断、長時間・controller |
 
-この範囲の成功は受け入れID全体の合格ではありません。PRO-01/02/03のprotocol/router、QOS-01/02、NET-01、SYS-01は未実装・未実施です。ACK-01もspyの呼出を確認するだけで、実ROS APIやcontrollerの結果を示しません。§8の実ROS・Browser必須ゲートを満たすまでは、統合ブリッジの対応済み・release可能とは判定しません。
+Linux Docker hostで、次のコマンドにより両distroのdirect / TURN UDPを検証します。
+
+```bash
+npx playwright-core install chromium
+npm run test:connection
+```
+
+環境の隔離、credential生成・削除、timeout、調査用のmatrix指定は[接続試験](tests/connection/README.md)、ROS単独試験は[ROS試験](tests/ros/README.md)を参照してください。検証済み構成はHumble/Ubuntu 22.04とJazzy/Ubuntu 24.04、Fast DDS、arm64、Node 22.22.2、rclnodejs 2.2.0の同梱prebuilt、Chromium 153.0.8010.12、coturn 4.6.3です。ブラウザSDKは未実装なのでraw clientを用います。
+
+この範囲の成功は受け入れID全体の合格ではありません。QOS-01/02の不一致・latched履歴、NET-01のTCP/TLS・UDP遮断、SYS-01、性能・負荷、amd64、CIは未検証または未実装です。ACK-01は実ROS observerまで確認しますが、controller完了を意味しません。§8の全必須ゲートとrelease条件の達成とは区別します。
 
 buildは`.runtime/build/`、coverageは`.runtime/coverage/`へ出力します。`coverage-summary.json`でfile単位の割合、`coverage-final.json`と`lcov.info`でstatement/branch位置を確認できます。測定artifactと調査記録はGitへ含めません。ROS/browser/TURNの具体的な起動手順・timeout・後始末は、各harnessの追加時に本書へ追記します。
 

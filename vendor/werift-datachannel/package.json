@@ -1,0 +1,18 @@
+{
+  "name": "@ros-webrtc/werift-datachannel",
+  "version": "0.24.4-core.1",
+  "private": true,
+  "description": "Integrity-pinned Werift core without nonstandard media dependencies",
+  "license": "MIT",
+  "main": ".runtime/lib/webrtc/src/index.js",
+  "types": ".runtime/lib/webrtc/src/index.d.ts",
+  "dependencies": {
+    "@fidm/x509": "1.2.1",
+    "@noble/curves": "1.9.7",
+    "@peculiar/x509": "1.14.3",
+    "@shinyoshiaki/binary-data": "0.6.1",
+    "debug": "4.4.0",
+    "multicast-dns": "7.2.5",
+    "tweetnacl": "1.0.3"
+  }
+}

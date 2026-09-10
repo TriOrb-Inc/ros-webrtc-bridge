@@ -2,7 +2,7 @@
 
 ## 現状
 
-このプロジェクトは設計段階です。サポート対象のリリースはまだなく、認証・認可や通信の安全性を実装済みとは表明していません。
+このプロジェクトは接続PoC段階です。TLS、単一Bearerと明示allowlist、commandの所有権・lease・sequence検証を実装しています。サポート対象のリリースはまだなく、多ユーザーidentity、token発行・期限管理、公開運用の安全性評価は未完了です。
 
 目標はROS 2 graphへ到達するWebRTC Topicブリッジです。以下を実装・運用の要件とし、具体的な保証範囲は [`docs/design.md`](docs/design.md) に従います。
 

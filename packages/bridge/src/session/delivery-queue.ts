@@ -79,6 +79,15 @@ export class DeliveryQueue {
     return message;
   }
 
+  /** 未送信先頭をcopyして確認する。入力例: ('s')、出力例: Uint8Array。@param id stream @returns 先頭copyまたはundefined */
+  peek(id: string): Uint8Array | undefined {
+    const stream = this.stream(id);
+    if (stream.stopped) throw new Error('slow_consumer');
+    const message = stream.messages[0];
+    // transport側の書換えでqueue内部のpayloadが変化しないよう所有権を分離する。
+    return message === undefined ? undefined : new Uint8Array(message);
+  }
+
   /** streamと待機payloadを解放する。入力例: ('s')、出力例: void。@param id stream @returns なし */
   closeStream(id: string): void {
     this.release(this.stream(id));
