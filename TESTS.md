@@ -66,7 +66,7 @@ tests/performance/            # 固定workloadと集計
 | PRO-02 | dataとcontrolの順序を逆転、readyを遅延 | handler登録・ready前に配信しない。ready後の新規sampleだけを配信 | Contract、Browser |
 | PRO-03 | unsubscribe直後の遅着、重複request、旧handle、seq逆順 | tombstoneで遅着破棄。副作用を重複させずcache上限を維持。handleを再利用しない | Unit、Contract |
 | AUTH-01 | 他robot/session、未許可alias、方向/型違い、catalog取得 | default deny。権限外metadataを公開せずROS publish回数0 | Unit、Browser |
-| AUTH-02 | queueへ入れた後、publish前にACL撤回/token失効 | publish直前の再検証で拒否。撤回処理完了後の新規ROS publish回数0 | Unit、実ROS、Browser |
+| AUTH-02 | Web→ROSのpublish待機中、またはROS→Webのsampleがpeer queueでbackpressure待機中にACL/session/token失効 | ROS publish直前とDataChannelへの引渡し直前に再認可する。撤回処理完了後の新規ROS publishと、保護対象sampleの新規DataChannel引渡しはともに0。未送信queueとlistenerを解放する | Unit、実ROS、Browser |
 | CMD-01 | lease期限の直前・一致・直後に受信/queueから取り出し | `now >= expires_at`で失効し、一致・直後はpublish回数0。直前は他条件を満たす場合だけ許可 | Unit、Contract |
 | CMD-02 | 再arm、再接続、gateway再起動、旧epoch/lease/seq、切断中操作 | 新sessionに旧commandを再送しない。古い権限を再利用せず、SDKは新しい入力から生成 | Unit、Browser、実ROS |
 | CMD-03 | remap後に同じROS Topicへ到達する別aliasで同時arm | 正規化した出力Topic単位でwriterが1 session。旧所有者と別handleのlease流用を拒否 | Unit、実ROS |
@@ -83,14 +83,16 @@ tests/performance/            # 固定workloadと集計
 
 CMD-01は設計書のmonotonic clockによる期限境界を検証します。browserのwall clockでGatewayの期限判定を置き換えません。
 
-拒否条件はエラー応答だけでなく、adapter spyのpublish回数0と独立ROS subscriberの両方で確認します。ROS側で「届かなかった」ことだけでは検出漏れの可能性があるため、matching済みobserver、試験前後の正常な対照sample、固有marker、観測windowを設定します。QoS不一致による未受信を拒否成功と判定しません。
+拒否条件はエラー応答だけでなく、write方向はadapter spyのpublish回数0と独立ROS subscriber、read方向はtransport spyへの保護対象sample引渡し回数0と独立browserで確認します。ROS側やbrowser側で「届かなかった」ことだけでは検出漏れの可能性があるため、matching済みobserver、試験前後の正常な対照sample、固有marker、観測windowを設定します。QoS不一致による未受信を拒否成功と判定しません。
+
+read方向の撤回保証は、撤回処理完了後にapplication queueから保護対象sampleを新たにtransportへ引き渡さないことを境界とします。撤回前にDataChannelへ引渡し済みのsampleの回収は保証しません。
 
 認可・protocol・入力検証はSDKを通さないraw clientからも試験します。SDKが不正入力を防ぐことだけでGateway側の検証を証明しません。
 
 ## 5. 時刻・競合・障害の制御
 
 - lease、request cache、rate、timeoutの境界はfake monotonic clockで試験します。tokenの絶対期限を扱うidentity validatorにはwall clockを別に注入し、期限判定を試験します。wall clockの前進・後退をlease判定へ影響させません。
-- 受信時検証とpublish直前の間にbarrierを置き、ACL撤回、期限到達、切断、writer交代を意図的に発生させます。偶然の競合を待つ試験にしません。
+- Web→ROSは受信時検証とROS publish直前、ROS→Webはqueue投入とtransport引渡し直前の間にbarrierを置き、ACL撤回、期限到達、切断、writer交代を意図的に発生させます。偶然の競合を待つ試験にしません。
 - timerをfakeにしたUnitだけでは実event loopやbrowser throttlingを確認できないため、実timerのBrowser/実ROS試験を残します。
 - 実timer試験は期限より十分内側/外側を使い、正確な境界一致はUnitで確認します。許容時間は測定環境に応じた設定値とし、期限切れcommandの受理を許容誤差へ含めません。
 - 異なるchannelを意図的に遅延させるtransport harnessと実PeerConnectionの両方で、control/dataの順序に依存しないことを確認します。
@@ -149,8 +151,9 @@ CIの自動実行と、失敗時にmergeを禁止するbranch protection / rules
 
 | 実行契機 | 必須ゲート | 実行範囲 |
 | --- | --- | --- |
-| 実装PR | build/lint/typecheck、Unit/Contract、C0/C1 100%、Humble・Jazzy両基準環境の実ROSとChromium E2E | 関連する受入れID。runtime全体のcoverageが必要なjobは変更箇所にかかわらず実行 |
-| 通信・認可・QoS・依存変更PR | 上記に加え、relay-only、該当競合/障害、影響する対応環境 | nightlyまで待たず、その変更のリスクを検証 |
+| M0実装PR | そのPRで導入するbuild/typecheck、Unit/Contract、C0/C1 100%、Humble・Jazzyの実ROSとChromium E2E | PoCの実装と同じPRにrunnerと再現手順を追加して合格させる。未導入の後続機能は未実装と明記し、M0実装の検証を免除しない |
+| M1以降の実装PR | build/lint/typecheck、Unit/Contract、C0/C1 100%、Humble・Jazzy両基準環境の実ROSとChromium E2E | M0の継続ゲートに型fixture、adapter共通契約、変更に対応する受入れIDを追加。runtime全体のcoverageが必要なjobは変更箇所にかかわらず実行 |
+| 通信・認可・QoS・依存変更PR | 対応する段階の実装PRゲートに加え、relay-only、該当競合/障害、影響する対応環境 | nightlyまで待たず、その変更のリスクを検証 |
 | nightly | SYS-01以外のbridge受入れ条件、対応matrix、TURN経路、障害注入、反復解放、長時間負荷 | PRで絞った組合せを展開。失敗を翌日のrelease候補へ持ち越さない |
 | controller併用例の実機試験 | SYS-01、controller固有のwatchdog/gate条件 | core nightlyとは別job。併用例のrelease前とcontroller契約変更時は必須 |
 | release候補 | 候補commit・lockfile・配布artifactを固定した全必須試験、決定済み性能budget、clean install、依存/license確認 | 宣言する全環境・経路。artifactのhashを記録し、過去commitの成功を流用しない |
@@ -191,8 +194,8 @@ flaky testにはissue、担当、原因仮説、修正期限を付けます。�
 
 ## 11. 実装順序と完了条件
 
-1. **M0**: runner/計測の評価、独立ROS fixture、実browser双方向PoC、TURN、採用versionと基準環境の固定、暫定性能budgetを整備します。
-2. **M1**: Unit/Contract、型vector、mock/実ROS adapter共通試験、基準E2E、coverage、queue/epoch、実装済み機能のPRゲートを有効化します。
+1. **M0**: runner/計測の評価、Unit/Contractと自前runtimeのC0/C1計測、独立ROS fixture、実browser双方向PoC、TURNを実装PR内で整備し、採用versionと基準環境を固定します。暫定性能budgetも整備します。
+2. **M1**: 型vector、mock/実ROS adapter共通試験、queue/epoch等の対象機能を拡張し、M0で導入した基準E2E・coverage・PRゲートを継続運用します。
 3. **M2**: lease/ACL/再接続、複数browser、network障害、nightly負荷、artifact検証、controller併用例のシステム試験を追加し、初期版の必須IDを満たします。
 
 各機能の実装PRで、その機能の正常・異常・境界試験と実行手順を追加します。「後の段階でテストする」を理由に実装済み機能の検証を省略しません。
