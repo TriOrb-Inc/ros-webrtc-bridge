@@ -1,0 +1,29 @@
+# JavaScript / TypeScript
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+
+# ROS / Python build outputs
+/build/
+/install/
+/log/
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Local working notes and temporary output (not published)
+.runtime/
+.tmp/
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Editor / OS files
+.DS_Store
+.vscode/
+.idea/
