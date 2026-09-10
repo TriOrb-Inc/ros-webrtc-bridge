@@ -1,6 +1,6 @@
 # テスト方針
 
-状態: 設計・未実装。テストコード、runner、CI、実測結果はありません。本書の配置・コマンド・合格条件は実装時に整備する計画です。
+状態: Unit・結合試験、実ROS、実Chromium、direct / TURN UDPの接続試験を実装しています。Humble/Jazzyのarm64で検証済みです。PRのCIを実装しています。amd64、通信障害・性能測定等は未完了で、全ゲートの達成とは扱いません。現在の実行手順と範囲は§11に記載します。
 
 共通開発規約とカバレッジ必須条件の正本は [CONTRIBUTING.md](CONTRIBUTING.md)、製品の契約は [docs/design.md](docs/design.md)、セキュリティ境界は [SECURITY.md](SECURITY.md) とします。本書は、それらをどの環境・観測・合格条件で検証するかを定めます。仕様を変更する場合は関連文書も同時に更新します。
 
@@ -27,18 +27,21 @@
 
 Unitは高速に多数の順序・境界を探索し、E2Eは主要な利用者経路と境界の接続を確認します。全組合せをE2Eへ重複実装しません。ただし認可・期限・資源解放はUnitだけで完了させません。
 
-runnerはNode.jsの`node:test`、coverageは`c8`、browser自動化はPlaywrightを候補とします。未採用であり、M0でTypeScript/source map、branch計測、native addon、実WebRTC、対応browserとライセンスを評価してversionを固定します。採用理由と制約を本書へ追記します。
+runnerはNode.js 22の`node:test`、coverageは`c8 12.0.0`を採用しています。TypeScript 5.9.3でsource mapを生成し、未importファイルと未実行分岐を含めて検査します。browser自動化は`playwright-core 1.63.0`を採用し、Chromium 153.0.8010.12で実WebRTCを検証しています。
 
 ## 3. Fixtureと独立した期待値
 
-テスト実装時の配置案です。現在は以下のディレクトリ・ファイルは未作成です。
+現在は`tests/unit/`、`tests/contracts/`、`tests/coverage/`、`tests/ros/`、`tests/browser/`、`tests/connection/`を使用します。network障害と性能専用directoryは後続の配置案です。
 
 ```text
-packages/*/src/<module>/       # 隣接するunitテスト
-tests/contracts/              # protocol/adapter/SDKの契約
+packages/*/src/<module>/       # 実装と内部API文書
+tests/unit/<module>/           # config / codec / session
+tests/contracts/              # module結合。SDKは後続
+tests/coverage/               # 計測設定の独立校正
 tests/fixtures/               # 手で確認したwire値、config、型定義
 tests/ros/                    # 独立ROS publisher/subscriberとintegration
 tests/browser/                # browserから実ROSまでのE2E
+tests/connection/             # Docker隔離・direct/TURN matrixと後始末
 tests/network/                # TURN・障害注入・再接続
 tests/performance/            # 固定workloadと集計
 ```
@@ -112,7 +115,7 @@ read方向の撤回保証は、撤回処理完了後にapplication queueから�
 
 [共通規約](CONTRIBUTING.md#testing-rules)の **C0・C1とも100%必須** を継承します。C0はstatement、C1はbranchを対応指標とし、line率だけで代用しません。MC/DCは対象外です。
 
-- 測定対象はbridge、SDK、signalingを含む自前の全runtime TypeScriptです。ROS adapter、起動処理、例外・終了経路を対象から外しません。
+- 測定対象はbridge、SDK、signalingを含む自前の全runtime TypeScriptです。ROS adapter、起動処理、例外・終了経路を対象から外しません。現実装はbridgeのみで、`.c8rc.json`の対象は`packages/bridge/src/**/*.ts`です。新packageの追加と同時に対象を拡張してください。
 - coverageのincludeで対象sourceを明示し、テストがimportしなかったファイルも0%として集計します。全体と各fileでC0/C1 100%を確認します。
 - unit/contract/integration/browserの必要な計測結果を同じcommit・同じsourceに対応付けて統合します。Node/browser間の重複やsource mapの誤対応を確認します。
 - M0で未実行branchを含む小さなfixtureを使い、TypeScriptへのsource map、未実行fileの検出、branch集計、複数jobのmergeを検証します。runnerの既定設定だけを信用しません。
@@ -125,7 +128,26 @@ read方向の撤回保証は、撤回処理完了後にapplication queueから�
 
 ## 8. CIと対応matrix
 
-以下は予定です。実装済み機能の必須jobが環境不足で動かなければ、その変更は未検証です。文書だけの変更はリンク・構文・整合性・差分確認に限定し、runtime coverageを要求しません。
+### 現在のPR workflow
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml)は`pull_request`の`opened`・`reopened`・`synchronize`で起動します。新しいcommitのpushは`synchronize`に対応します。base branch・変更pathによる絞り込みはせず、draft PRと文書だけの変更でも全jobを実行します。PR番号ごとのconcurrencyで古い実行をキャンセルし、最新変更を検証します。
+
+- Unit job: Node 22.22.2、`npm ci --ignore-scripts`、transport生成、typecheck、Unit/Contractとファイル別C0/C1 100%、計測校正、実DataChannel試験。
+- ROS job: Humble／Jazzyを別々のGitHub-hosted `ubuntu-24.04-arm` VMで実行。Dockerでdistroを分離し、独立native試験とChromiumのdirect / TURN UDPを検証。片方の失敗で他方の結果を省略しません。
+- `contents: read`だけを付与し、checkout credentialを保持しません。CIで長期credentialを必要とせず、接続試験のcredential・TLS鍵はharnessが実行時生成します。PRのmerge commitをcheckoutしてbaseとの組合せを検証します。
+- jobと長時間工程にtimeoutを設けます。通常終了・失敗時はharnessが資源を解放し、強制cancel時に残る資源はjob専用VMの破棄で回収します。
+
+PRのChecksから各jobのログとJob Summaryを確認できます。coverage-summaryと匿名の接続結果をSummaryへ、credentialを渡さないDocker image buildのログをjobログへ明示したpathだけから出力します。`.runtime/`全体、秘密ファイル、Gateway/TURNのログは収集しません。結果生成前の失敗はSummaryに結果なしと表示し、jobログから診断します。生成済み結果だけでは全job成功と判定しません。
+
+保存期間はリポジトリのActionsログ保持設定に従います。生coverageや接続結果のダウンロード用artifactは未実装です。必要な詳細結果は§11の同じコマンドで再現し、ローカル`.runtime/`から取得します。
+
+このworkflowを含むPRから適用され、既存PRへ遡って自動追加されるものではありません。全PRへ共通適用するにはbase branchへmergeします。fork PRはGitHub側の実行承認設定、merge conflictがあるPRはGitHubの実行条件に従います。[PRイベントの条件](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request)
+
+CIの自動実行と、失敗時にmergeを禁止するbranch protection / rulesetは別設定です。必須チェックの管理設定はこのworkflowでは変更しません。
+
+### 後続のgateと対応目標
+
+以下は現行PR workflowに追加する目標です。lint、障害注入、nightly、controller、releaseの全ゲートは未整備です。実装済み機能の必須jobが環境不足で動かなければ、その変更は未検証です。
 
 | 実行契機 | 必須ゲート | 実行範囲 |
 | --- | --- | --- |
@@ -136,7 +158,7 @@ read方向の撤回保証は、撤回処理完了後にapplication queueから�
 | controller併用例の実機試験 | SYS-01、controller固有のwatchdog/gate条件 | core nightlyとは別job。併用例のrelease前とcontroller契約変更時は必須 |
 | release候補 | 候補commit・lockfile・配布artifactを固定した全必須試験、決定済み性能budget、clean install、依存/license確認 | 宣言する全環境・経路。artifactのhashを記録し、過去commitの成功を流用しない |
 
-対応目標はROS 2 HumbleとJazzyです。PRとreleaseの基準環境はUbuntu 22.04 / ROS 2 Humble、およびUbuntu 24.04 / ROS 2 Jazzyの両方とし、Fast DDS / Linux amd64 / Chromiumを共通の初期構成とします。各環境をDockerで再現し、Node、rclnodejs、RMW、transport、browserはM0で互換性を確認したversionへ固定します。現時点の対応済み宣言ではありません。
+対応目標はROS 2 HumbleとJazzyです。PRとreleaseの基準環境はUbuntu 22.04 / ROS 2 Humble、およびUbuntu 24.04 / ROS 2 Jazzyの両方とし、Fast DDS / Linux amd64 / Chromiumを対応目標とします。現行PR CIは検証済みのarm64を基準とし、amd64は別途実測して追加します。各環境をDockerで再現し、Node、rclnodejs、RMW、transport、browserはM0で互換性を確認したversionへ固定します。現時点の対応済み宣言ではありません。
 
 | 環境・軸 | 導入順序と昇格条件 |
 | --- | --- |
@@ -144,7 +166,7 @@ read方向の撤回保証は、撤回処理完了後にapplication queueから�
 | Ubuntu 22.04 + Humble + Fast DDS + amd64 + Chromium | M0で双方向PoC、M1以降は基準PR job、release必須 |
 | Ubuntu 24.04 + Jazzy + Fast DDS + amd64 + Chromium | M0で双方向PoC、M1以降は基準PR job、release必須 |
 | Firefox / Playwright WebKit | M2までにBrowser E2Eを追加し対応範囲を明記。Playwrightのpatched Firefoxと製品版Firefox、WebKitと実Safariを区別。製品版対応は別途実機確認 |
-| Linux arm64 | 対象端末またはnative runnerでbuild/実ROS/E2Eを確認して対応へ昇格。emulationだけで性能保証しない |
+| Linux arm64 | 現行PR CIの基準。Humble/Jazzyのbuild・実ROS・E2Eをnative runnerで実行。性能保証は別途評価 |
 | Cyclone DDS / 追加ROS distro | 需要とrunner確保を条件に実ROS契約/QoS試験を追加。未実施のRMW/distroを対応表へ入れない |
 | TURN UDP/TCP/TLS・UDP遮断 | M0はTURN成立を確認。M2は経路別結果を公開し、対応宣言した経路をrelease必須化 |
 
@@ -166,9 +188,11 @@ M0の測定から、M1開始前に暫定budget、M2 release候補の計測前に
 
 最初の失敗を保存し、自動retryの成功で必須ゲートを緑にしません。retryは調査として別結果に記録します。seed、受入れID、commit、環境、timeout、期待値/実測値、機密情報を除いた診断を残します。
 
+接続scenario開始前のreadiness確認は、共通deadline内の有限pollingとして扱えます。再試行対象を一時的な到達エラーへ限定し、最初の固定失敗分類、試行回数、経過時間を結果へ残します。HTTP異常、認証失敗、browser/Gateway停止等をretryで隠さず、readiness成立後の接続scenario自体は再実行しません。これは失敗した受け入れ試験全体のretryとは区別します。
+
 flaky testにはissue、担当、原因仮説、修正期限を付けます。隔離する場合もcoverageや必須受入れ条件から黙って外さず、同等の決定的な検証がなければ対応するreleaseゲートは未達です。認可・command期限・資源上限の失敗を許容済みとしてreleaseしません。
 
-結果は「合格」「不合格」「skip」「未実装」「未実施」を区別します。skipにも理由を付け、必須条件の合格へ数えません。対応表、coverage対象と除外、受入れIDごとの結果、残るリスクを同じcommitに結び付けます。artifact保存期間と失敗時の取得手順はCI導入時に追記します。
+結果は「合格」「不合格」「skip」「未実装」「未実施」を区別します。skipにも理由を付け、必須条件の合格へ数えません。対応表、coverage対象と除外、受入れIDごとの結果、残るリスクを同じcommitに結び付けます。PR CIの結果保持と失敗時の確認手順は§8に記載します。
 
 ## 11. 実装順序と完了条件
 
@@ -178,10 +202,47 @@ flaky testにはissue、担当、原因仮説、修正期限を付けます。�
 
 各機能の実装PRで、その機能の正常・異常・境界試験と実行手順を追加します。「後の段階でテストする」を理由に実装済み機能の検証を省略しません。
 
-現時点では実行可能なtestコマンドはありません。導入時にbuild/lint等の共通コマンドは [CONTRIBUTING.md](CONTRIBUTING.md#local-checks)、testコマンドは本書を正本として記載します。本書にはROS/browser/TURNの前提・具体的な起動手順・timeout・後始末・artifact取得方法も追加します。
+現在のモジュール試作はROS不要で実行できます。Node.js 22（22.12以上、検証版22.22.2）、npm、lockfileの依存を使用します。build/typecheckの詳細は [CONTRIBUTING.md](CONTRIBUTING.md#local-checks)を参照してください。
+
+```bash
+npm ci --ignore-scripts
+npm run prepare:transport
+npm run typecheck
+npm test
+npm run test:coverage
+npm run test:transport
+```
+
+`npm test`はbuild後、Unitとモジュール結合試験を実行し、自前runtime全ファイルそれぞれのstatement / branch / function / line 100%を必須とします。テストは個別10秒のtimeoutを持ち、通常は数秒以内に完了します。型宣言`.d.ts`、外部依存、生成JS、テスト/harnessは分母に含めません。weriftの生成物は外部実装として対象外ですが、`npm run test:transport`で固定patchを含む実DataChannel送受信を検証します。
+
+`npm run test:coverage`は計測設定の校正です。隔離したTypeScript fixtureで、source map、未実行分岐、未importファイル、複数processの計測統合を確認します。意図的にcoverage不足にした子processの失敗をassertし、親testが成功すれば校正合格です。製品コードの閾値は下げません。子processのtimeoutは既定30秒で、`COVERAGE_CALIBRATION_TIMEOUT_MS`に正整数のmillisecondを指定して上書きできます。全体はその12倍で打ち切り、待機中は5秒ごとに進捗を出します。
+
+| 現在の試験 | 対象IDの部分範囲 | 未検証の境界 |
+| --- | --- | --- |
+| `tests/unit/config/` | CFG-01/02、CMD-03の設定衝突 | native境界はROS試験 |
+| `tests/unit/codec/` | TYPE-01、SEC-01のdescriptor/値/容量 | 全ROS型のnative互換性 |
+| `tests/unit/session/`、`router/` | AUTH、CMD、FLOW、SIZE、LIFE、PROの状態・wire境界 | 負荷、native滞留、SDK |
+| `tests/unit/ros/`、`app/` | descriptor、64bit/bytes、hash、起動/終了、実HTTPSと認証 | 多ユーザーidentity、全ROS型 |
+| `tests/unit/transport/`、`signaling/` | 3channel属性、SDP/message容量、待機中取消、認証前拒否、peer解放 | 実ネットワーク障害 |
+| `tests/contracts/module-flow.test.ts` | 設定→codec→guard→同期publish spy、codec→byte queue | 独立ROS観測は下記 |
+| `tests/ros/native.test.ts` | String/Twist、連鎖remap、実entity・終了 | QoS不一致、全型、性能 |
+| `tests/browser/`、`tests/connection/` | 実wire/String/Twist、CMD-01/02、ACK-01、NET-01 UDP、再接続 | TURN TCP/TLS、UDP遮断、長時間・controller |
+
+Linux Docker hostで、次のコマンドにより両distroのdirect / TURN UDPを検証します。
+
+```bash
+npx playwright-core install chromium
+npm run test:connection
+```
+
+環境の隔離、credential生成・削除、timeout、調査用のmatrix指定は[接続試験](tests/connection/README.md)、ROS単独試験は[ROS試験](tests/ros/README.md)を参照してください。検証済み構成はHumble/Ubuntu 22.04とJazzy/Ubuntu 24.04、Fast DDS、arm64、Node 22.22.2、rclnodejs 2.2.0の同梱prebuilt、Chromium 153.0.8010.12、coturn 4.6.3です。ブラウザSDKは未実装なのでraw clientを用います。
+
+この範囲の成功は受け入れID全体の合格ではありません。QOS-01/02の不一致・latched履歴、NET-01のTCP/TLS・UDP遮断、SYS-01、性能・負荷、amd64は未検証または未実装です。ACK-01は実ROS observerまで確認しますが、controller完了を意味しません。§8の全必須ゲートとrelease条件の達成とは区別します。
+
+buildは`.runtime/build/`、coverageは`.runtime/coverage/`へ出力します。`coverage-summary.json`でfile単位の割合、`coverage-final.json`と`lcov.info`でstatement/branch位置を確認できます。測定artifactと調査記録はGitへ含めません。ROS/browser/TURNの具体的な起動手順・timeout・後始末は、各harnessのREADMEを参照してください。
 
 ## 12. 採用評価の一次資料
 
-- [Node.js test runner](https://nodejs.org/api/test.html): runner候補の実行・隔離・mock機能を確認します。
-- [c8](https://github.com/bcoe/c8): `--all`による未load fileの計測とsource map対応を確認します。採用versionのinclude/excludeとthresholdは実装時に検証します。
+- [Node.js test runner](https://nodejs.org/api/test.html): 採用runnerの実行・隔離・mock機能。
+- [c8](https://github.com/bcoe/c8): `--all`による未load fileの計測とsource map対応。採用versionのinclude/excludeとthresholdを校正します。
 - [Playwright browsers](https://playwright.dev/docs/browsers): 配布browserの種類と、製品版browserとの差を対応表へ反映します。

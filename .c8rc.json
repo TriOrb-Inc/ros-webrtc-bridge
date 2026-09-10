@@ -1,0 +1,15 @@
+{
+  "all": true,
+  "src": ["packages/bridge/src"],
+  "include": ["packages/bridge/src/**/*.ts"],
+  "extension": [".ts"],
+  "exclude-after-remap": true,
+  "check-coverage": true,
+  "per-file": true,
+  "statements": 100,
+  "branches": 100,
+  "functions": 100,
+  "lines": 100,
+  "reporter": ["text", "json-summary", "json", "lcov"],
+  "reports-dir": ".runtime/coverage"
+}

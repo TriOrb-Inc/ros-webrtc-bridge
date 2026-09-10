@@ -21,7 +21,7 @@
 
 ## Project-Specific Principles
 
-このリポジトリは、設定駆動で ROS 2 Topic の Pub/Sub を WebRTC DataChannel に橋渡しする OSS です。現状は設計段階で、実装、依存導入、実機検証は未実施です。[設計検討書](docs/design.md)を読み、実装済み機能と提案を区別してください。
+このリポジトリは、設定駆動で ROS 2 Topic の Pub/Sub を WebRTC DataChannel に橋渡しする OSS です。現状は実ROSとブラウザを接続するPoC段階です。[設計検討書](docs/design.md)を読み、実装・検証した範囲、未実装機能、未実施の実機・性能検証を区別してください。
 
 - Topic ごとの個別実装を増やす前に、宣言的な設定だけで機能追加できるか検討してください。設定の正本は `bridge.yaml` とし、設定 schema と公開 catalog を整合させる設計です。
 - ROS adapter、型 schema / codec、session / 認可 / queue、WebRTC transport、signaling の責務を分離してください。
@@ -38,7 +38,22 @@
 
 ## Local Checks
 
-現時点では `package.json`、build / lint / test script、CI は未整備です。`npm install` や `npm test` を実行可能な検証手順として扱わないでください。
+Node.js 22（22.12以上、検証版22.22.2）を使用します。依存はlockfileで固定しています。
+
+```bash
+npm ci --ignore-scripts
+npm run prepare:transport
+npm run build
+npm run typecheck
+```
+
+buildは前回の`.runtime/build/`を削除してTypeScriptとsource mapを再生成します。`node_modules/`はnpm標準の解決先のためrootに置き、Gitから除外します。lintは未整備です。PR作成・再オープン・PRブランチへの追加pushで[CI](.github/workflows/ci.yml)を実行します。testコマンドと保証範囲は [TESTS.md](TESTS.md#11-実装順序と完了条件)を参照してください。
+
+実行時依存は`yaml 2.9.0`（ISC）、`rclnodejs 2.2.0`（Apache-2.0）、[werift coreのlocal package](vendor/werift-datachannel/README.md)（MIT）です。rclnodejsのinstall・型生成はROS環境で明示実行し、ROS不要のUnitではnativeをロードしません。[ref-napiの通知補完](vendor/rclnodejs-notices/README.md)も配布時に保持してください。
+
+開発依存は`typescript 5.9.3`（Apache-2.0）、`@types/node 22.20.2`（MIT）、`c8 12.0.0`（ISC）、`playwright-core 1.63.0`（Apache-2.0）です。lockfileの推移依存はMIT、ISC、BSD、Apache-2.0、0BSD、Unlicense、[BlueOak-1.0.0](https://blueoakcouncil.org/license/1.0.0)等のpermissive licenseです。依存を配布物へ含める場合は各licenseの通知を同梱してください。
+
+CIの外部Actionsは`actions/checkout`と`actions/setup-node`を使用し、versionとcommit SHAをworkflow内で固定します。本体MITとbundle内のpermissive licenseを確認した版を使い、更新時も推移依存・通知を再確認してください。
 
 文書変更ではリンク先、記載したファイル・コマンドの実在、用語、設計との整合性を確認してください。Git 管理下では次の差分確認も実施してください。
 

@@ -1,6 +1,6 @@
 # ROS 2 / WebRTC DataChannel Bridge 設計検討
 
-状態: 設計案。以下の設定、API、数値は実装済み機能や実測結果を表すものではない。
+状態: 構想設計と接続PoC。実装・検証範囲は§14に記載する。以下のv0.1目標、対応matrix、性能条件のすべてを達成済みとして扱わない。
 
 ## 1. 推奨方針と前提
 
@@ -67,7 +67,7 @@ flowchart LR
 | Python + rclpy + aiortc | ROS標準Python型とasyncioを利用しやすい | SDKとサーバーで言語が分かれる。executorとasyncioの所有権分離が必要 |
 | C++ + rclcpp + libdatachannel | GenericSubscription / GenericPublisherとserialized dataを扱える | MPL-2.0依存のため現方針では採用対象外。C++化が必要なら方針に適合するtransportを別途評価 |
 
-**推奨はTS構成とweriftでPoCを開始し、WebRTCライブラリをM0で確定すること。** SDKとサーバーの型・契約を統一しやすく、permissive licenseを優先する [`CONTRIBUTING.md`](../CONTRIBUTING.md) の依存方針に沿って評価できる。
+**TS構成とrclnodejsを使い、WebRTCは§14のライセンス適合を確認したwerift coreで接続PoCを行う。** SDKとサーバーの型・契約を統一しやすい構成を維持し、[`CONTRIBUTING.md`](../CONTRIBUTING.md) の依存方針を守る。
 
 本体のライセンスは [`Apache-2.0`](../LICENSE)。依存ライブラリと配布物のライセンス一覧は採用バージョンごとに記録し、必要な著作権・ライセンス表示を維持する。
 
@@ -286,3 +286,43 @@ M0では、次の事項を検証・確定する。
 - controller側watchdog・期限検証の契約、必要なlatency/rateと性能budget。
 
 対応環境と性能条件は、検証結果に基づいて公開する。
+
+## 14. モジュール試作の契約と残る接続境界
+
+`packages/bridge/src/`にconfig、codec、session、router、ROS adapter、transport、HTTPS signaling、起動CLIを実装している。Humble/Jazzyのarm64 Docker、Node 22.22.2、rclnodejs 2.2.0、Chromium 153.0.8010.12でString/Twistの双方向通信、直接接続、TURN UDP、旧command拒否、再接続を検証した。amd64・他browser・性能budget等のM0残件は別途評価する。
+
+### 起動設定
+
+[設定loader](../packages/bridge/src/config/README.md)は[bridge.yaml](../examples/bridge.yaml)を検証し、変更できないbinding配列を返す。型loaderによる確認済み型名一覧と、ROS adapterのremap関数を注入する。公開名は保持し、writer所有権には解決済みROS名を使う。同一出力Topicへ向かうaliasで、型・QoS・access・guard・rate・配送・queueが食い違う場合は起動を拒否する。
+
+初期実装のQoS historyは`keep_last`のみ。配送設定はreliableなら有限FIFO、realtimeなら1件のlatestを必須とする。設定mapの未知field、重複key、YAML alias、独自tagを拒否し、設定文書のUTF-8 byte数とTopic数も制限する。名前は絶対ASCII名、247文字以下とし、native側のRMW検証もadapterで行う。[RMW完全Topic名の検証](https://github.com/ros2/rmw/blob/jazzy/rmw/include/rmw/validate_full_topic_name.h)
+
+設定解決とentity生成は同一ROS backendを使用する。所有名は1回remapした名前とし、native生成には元の入力名を渡して、生成後の実Topic名との一致を確認する。解決済み名を再remapしない。`/source→/target`と`/target→/other`の連鎖ruleがあっても、guard所有名と実出力名を一致させる。
+
+### 型変換
+
+[codec](../packages/bridge/src/codec/README.md)は明示したfield descriptorを生成時にsnapshotする。64bit整数はnative側`bigint`、wire側canonical decimal string、uint8列はnative側`Uint8Array`、wire側padding付きcanonical base64に固定する。float32はbinary32へ丸めてoverflowを拒否する。string上限はUTF-8 bytesとし、孤立surrogateを拒否する。
+
+型値は欠落・未知field、配列のhole・追加property、getter等を暗黙に捨てない。commandには`allowNonFinite: false`を必須指定する。descriptor/payloadの深さ、node数、配列長、string/bytes長はfactory optionで制限する。rclnodejsのint64 scalarはsafe範囲のnumberまたはdecimal stringとして読み、codecへはbigintを渡す。ROS publish時はnative APIが受け付けるdecimal stringへ変換する。
+
+ROS型はrclnodejs `MessageIntrospector`からdescriptorを生成し、未知primitiveを推測で公開しない。schema IDは`codec`、`descriptor`、`allowNonFinite`を含むobjectを再帰的なkey昇順で正規化したJSONのSHA-256とする。array順序を保持し、同じ型でもcommandの非有限値拒否policyが異なればhashを変える。配布JSON Schema・HTTP schema取得APIは後続実装である。
+
+### Commandとqueue
+
+[CommandGuard](../packages/bridge/src/session/README.md)はsession、handle、leaseを再利用しないIDで管理し、Topicごとのlease時間をhandle生成時に固定する。`seq`はcanonical uint64 decimal stringとし、上限到達時は新しいhandleを取得する。受信時にseqを消費し、publish時も順序を検証する。ticketは成功・失敗を問わず1回だけ使用でき、ROS APIの例外でもseqを巻き戻さない。同じsessionの別handleで再armした場合も、同一ROS出力の旧leaseを失効させる。
+
+認可hookの後にも所有状態を再取得し、撤回済みstateを使わない。clockは副作用のない単調clockを注入する。最終検証からROS publishまでは同期処理とし、`await`を挟まない。[session router](../packages/bridge/src/router/README.md)は型・値・rate・方向・所有権を検証し、ready後の新規sampleだけを配信する。待機中のtelemetryも送信直前に再認可する。routerの致命的終了は、ROS callback起点でもtransportへ通知してpeer枠を解放する。
+
+`DeliveryQueue`は1 peerのencode済みenvelope bytesをcopyして保存する。latestは旧値を捨て、peer上限に新値も収まらなければ新値を捨ててdropを計測する。reliableの上限超過は待機値を解放してstreamを停止する。設定の`fifo`はqueue APIの`reliable`に対応する。routerはcontrolを優先し、transportは`bufferedAmount`と合意message上限を確認して送信する。process全体budgetとnative callback滞留の制御・長時間評価は残る。
+
+### Transport採用の制約
+
+`werift`本体がMITでも推移依存の適合確認が必要である。`werift 0.24.4`は`mediabunny`へ依存し、対象版のlicenseはMPL-2.0であるため現行の依存方針では導入しない。[weriftの依存定義](https://github.com/shinyoshiaki/werift-webrtc/blob/v0.24.4/packages/webrtc/package.json)、[mediabunny 1.45.2の配布metadata](https://registry.npmjs.org/mediabunny/1.45.2)
+
+PoCでは[werift core](../vendor/werift-datachannel/README.md)の通常entryから到達するファイルだけを、上流artifactのintegrity・個別hash・import閉包の検査付きで明示生成する。MPL依存を使うnonstandard録画機能とRTP extraは導入しない。DCEP OPENがpartial reliability指定でunordered bitを上書きする上流箇所へ、前後hash付きの2行修正を適用する。通常の3channel契約と16KiB往復を回帰試験する。
+
+認証は実行時注入する単一Bearerと、subscribe公開名・publish scopeの固定allowlistである。未指定権限は拒否し、認証前にはPeerConnectionを作らない。TLSを必須とし、SDP/request/peer数/交渉時間を制限する。[CLIの設定](../packages/bridge/src/app/README.md)と[接続試験](../tests/connection/README.md)に再現手順を記載する。
+
+ブラウザSDK、JWT/多ユーザーのidentity管理、外向きrendezvous、TURN TCP/TLS・UDP遮断、QoS不一致診断、性能・長時間試験、controller側watchdogは未完了である。これらを接続PoCの成功で代替しない。
+
+PRの作成・再オープン・ブランチ更新では、[CI](../.github/workflows/ci.yml)が単体・結合・カバレッジ校正・transport試験、およびHumble/Jazzy arm64の実ROS・Chromium direct/TURN UDP試験を実行する。nightly、追加対応軸、release試験は[TESTS.md](../TESTS.md#8-ciと対応matrix)の後続計画とする。
