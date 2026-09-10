@@ -17,6 +17,7 @@
 | `ros_qos` | 全項目必須。`keep_last`と正の`depth`を使用。DDS reliabilityとDC配送は独立 |
 | 配送 | `realtime`は`latest / max_messages: 1`、`reliable`は有限件数の`fifo` |
 | `max_rate_hz` | 必須。正の有限数、小数も可。rate制御自体は上位層が実装 |
+| `access.exclusive_writer` | `true`は`command_guard`必須。`false`かつguardなしは複数writer用途として許可。`false`かつguardありは拒否 |
 | `command_guard` | 指定時は`required: true`、正整数`lease_ms`、Web→ROS、volatile、排他writerが必須 |
 | 同一ROS出力 | remap後の名前で比較。型・QoS・access・guard・rate・配送・queueが異なるaliasを拒否 |
 

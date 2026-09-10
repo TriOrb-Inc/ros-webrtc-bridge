@@ -45,10 +45,14 @@ function parseAccess(value: unknown, direction: TopicBinding['direction'], path:
     exclusiveWriter: boolean(access.exclusive_writer, `${path}.access.exclusive_writer`) });
 }
 
-/** command条件を検証する。例: (undefined, ...) → undefined。guardはvolatile・排他writer必須。 */
+/** command条件を検証する。例: guard省略かつ非排他 → undefined。排他writerのguard省略は例外。 */
 function parseGuard(value: unknown, direction: TopicBinding['direction'], durability: string,
   access: TopicBinding['access'], path: string): TopicBinding['commandGuard'] {
-  if (value === undefined) return undefined;
+  // 排他所有権はguardが管理するため、排他指定だけを受理して無効化しない。
+  if (value === undefined) {
+    if (access?.exclusiveWriter) throw new ConfigError(path, 'exclusive writer requires command guard');
+    return undefined;
+  }
   const guard = record(value, ['required', 'lease_ms'], `${path}.command_guard`);
   if (guard.required !== true) throw new ConfigError(path, 'command guard must be required');
   // 型名からcommand用途を推測しない。明示したguardが成立する構成だけを受理する。

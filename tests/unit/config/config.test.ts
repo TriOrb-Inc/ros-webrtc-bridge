@@ -123,8 +123,17 @@ test('CFG-01 配送queueとcommand保護の矛盾を拒否する', () => {
     v => { v.topics['/odom'].command_guard = { required: true, lease_ms: 250 }; },
   ];
   for (const edit of edits) assert.throws(() => changed(edit), ConfigError);
-  // 一般のWeb→ROS Topicはguard省略可能。認可は別途default denyが必要。
-  assert.equal(changed(v => { delete v.topics['/cmd_vel'].command_guard; }).topics[1].commandGuard, undefined);
+});
+
+test('CFG-01/CMD-03 排他writerはguard必須、非排他writerはguardなしを許可する', () => {
+  assert.throws(() => changed(v => { delete v.topics['/cmd_vel'].command_guard; }), /exclusive writer requires command guard/);
+  // 複数writerを使う一般Topicは排他指定を解除し、guardを省略する。
+  const config = changed(v => {
+    v.topics['/cmd_vel'].access.exclusive_writer = false;
+    delete v.topics['/cmd_vel'].command_guard;
+  });
+  assert.equal(config.topics[1].access?.exclusiveWriter, false);
+  assert.equal(config.topics[1].commandGuard, undefined);
 });
 
 test('CFG-01/CMD-03 同じ出力へ向かうaliasの保護条件を比較する', () => {
@@ -133,6 +142,7 @@ test('CFG-01/CMD-03 同じ出力へ向かうaliasの保護条件を比較する'
   assert.equal(parseBridgeConfig(stringify(value), options).topics.length, 3);
   // 異なる公開名からguardなしで同じROS出力へ迂回できない。
   delete value.topics['/operator/velocity'].command_guard;
+  value.topics['/operator/velocity'].access.exclusive_writer = false;
   assert.throws(() => parseBridgeConfig(stringify(value), options), /conflicting ROS output/);
   delete value.topics['/operator/velocity'];
   value.topics['/other'] = { ...structuredClone(value.topics['/cmd_vel']), ros_topic: '/other' };

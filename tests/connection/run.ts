@@ -5,6 +5,7 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { verifyBrowserConnection } from '../browser/connection.js';
+import { connectionFailure, parseContainerState, type ContainerState } from './diagnostics.js';
 import { command } from './process.js';
 
 /** HTTPS readinessをdeadlineまで待つ。入力URL/timeout、出力なし。例: /health=200 → 正常終了。 */
@@ -65,20 +66,33 @@ async function verify(distro: 'humble' | 'jazzy', relay: boolean) {
     const url = `https://${address}:7443`;
     await healthy(url, 30000);
     const reports: unknown[] = [];
-    // まずdirect経路で独立ROS nodeとの全利用経路を確認する。
-    reports.push(await verifyBrowserConnection({ url, credential }));
-    if (relay) {
-      const turnUser = randomBytes(12).toString('hex'), turnCredential = randomBytes(32).toString('hex');
-      await writeFile(join(input, 'turn.conf'), ['listening-port=3478', 'fingerprint', 'lt-cred-mech', 'realm=bridge-test',
-        `user=${turnUser}:${turnCredential}`, 'no-cli', 'no-tls', 'no-dtls', 'no-multicast-peers', 'allow-loopback-peers',
-        'min-port=49160', 'max-port=49200', 'no-stdout-log', 'log-file=/dev/null', ''].join('\n'), { mode: 0o600 });
-      owned.push(turn);
-      await run('turn-start', 'docker', ['run', '--init', '-d', '--user', '0:0', '--name', turn, '--network', network,
-        '--label', `ros-webrtc-test=${suffix}`, '-v', `${input}:/run/bridge:ro`, 'coturn/coturn:4.6.3', '-c', '/run/bridge/turn.conf']);
-      const address = await run('turn-address', 'docker', ['inspect', '--format', '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}', turn]);
-      // fallbackを許さず選択candidateがrelayであることをbrowser helper内でassertする。
-      reports.push(await verifyBrowserConnection({ url, credential, relayOnly: true,
-        iceServers: [{ urls: `turn:${address}:3478?transport=udp`, username: turnUser, credential: turnCredential }] }));
+    try {
+      // まずdirect経路で独立ROS nodeとの全利用経路を確認する。
+      reports.push(await verifyBrowserConnection({ url, credential }));
+      if (relay) {
+        const turnUser = randomBytes(12).toString('hex'), turnCredential = randomBytes(32).toString('hex');
+        await writeFile(join(input, 'turn.conf'), ['listening-port=3478', 'fingerprint', 'lt-cred-mech', 'realm=bridge-test',
+          `user=${turnUser}:${turnCredential}`, 'no-cli', 'no-tls', 'no-dtls', 'no-multicast-peers', 'allow-loopback-peers',
+          'min-port=49160', 'max-port=49200', 'no-stdout-log', 'log-file=/dev/null', ''].join('\n'), { mode: 0o600 });
+        owned.push(turn);
+        await run('turn-start', 'docker', ['run', '--init', '-d', '--user', '0:0', '--name', turn, '--network', network,
+          '--label', `ros-webrtc-test=${suffix}`, '-v', `${input}:/run/bridge:ro`, 'coturn/coturn:4.6.3', '-c', '/run/bridge/turn.conf']);
+        const address = await run('turn-address', 'docker', ['inspect', '--format', '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}', turn]);
+        // fallbackを許さず選択candidateがrelayであることをbrowser helper内でassertする。
+        reports.push(await verifyBrowserConnection({ url, credential, relayOnly: true,
+          iceServers: [{ urls: `turn:${address}:3478?transport=udp`, username: turnUser, credential: turnCredential }] }));
+      }
+    } catch (error) {
+      // containerの限定状態と固定失敗分類だけを公開可能な結果へ残し、生logや接続情報は含めない。
+      let gatewayState: ContainerState = { available: false };
+      try {
+        const state = await run('gateway-state', 'docker', ['inspect', '--format',
+          '{{.State.Running}} {{.State.ExitCode}} {{.State.OOMKilled}}', gateway]);
+        gatewayState = parseContainerState(state);
+      } catch { /* cleanupを続け、診断取得失敗で元の接続失敗を置き換えない。 */ }
+      await writeFile(join(directory, 'result.json'), JSON.stringify({ distro, status: 'FAIL',
+        failure: connectionFailure(error), gateway: gatewayState }, null, 2)).catch(() => {});
+      throw error;
     }
     const imageInfo = await run('image', 'docker', ['image', 'inspect', image, '--format', '{{.Architecture}} {{.Id}}']);
     const result = { distro, image: imageInfo, reports };

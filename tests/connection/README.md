@@ -28,6 +28,7 @@ Gatewayの一時Bearer、TLS key/cert、TURN credentialを毎回生成します�
 - Stringの固有markerをWeb→ROS→Webで照合。
 - 実行固有の値を含む完全なTwistをpublishし、独立ROS nodeの観測した全fieldを照合。受信channel・stream・epochも検証する。
 - 期限切れlease・旧epochを拒否し、観測windowで不正commandを受信しないことを確認。拒否した値は以後の全受信でも監視し、拒否の前後に正常な対照commandを流す。
+- Browser health失敗時は、固定分類・試行回数・経過時間とGatewayの`running`、`exitCode`、`oomKilled`だけを`result.json`へ記録する。URL、credential、SDP、生logは結果へ含めない。
 - 初回と2回の再接続でepoch非再利用を確認。古いcommandを再送しない。
 - `getStats()`の選択candidate pairを確認。TURN経路ではブラウザの`relay-only`を強制し、選択local candidateが`relay`でなければ失敗。
 
