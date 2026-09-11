@@ -14,7 +14,12 @@
     "test": "npm run build && c8 node --test --test-timeout=10000 .runtime/build/tests/unit/*/*.test.js .runtime/build/tests/contracts/*.test.js",
     "test:coverage": "npm run build && node --test .runtime/build/tests/coverage/calibration.test.js",
     "prepare:transport": "node vendor/werift-datachannel/materialize.mjs",
+    "refresh:transport": "node vendor/werift-datachannel/refresh.mjs",
     "test:connection": "npm run build && node .runtime/build/tests/connection/run.js",
+    "test:packaging": "bash tests/packaging/smoke.sh",
+    "test:packaging:contract": "node tests/packaging/package-contract.mjs .",
+    "test:performance": "npm run build && node .runtime/build/tests/performance/run.js",
+    "test:soak": "npm run build && PERFORMANCE_MODE=soak node .runtime/build/tests/performance/run.js",
     "test:transport": "node vendor/werift-datachannel/smoke.mjs",
     "bridge": "node -e \"import('./.runtime/build/packages/bridge/src/app/cli.js').then(m=>m.main()).catch(()=>{console.error('Bridge startup failed');process.exitCode=1})\""
   },

@@ -34,11 +34,11 @@ test('TYPE-01 ROS representation: ref-napi整数/bytesとbridge nativeの値を�
   const descriptor = descriptorFromRos('test/msg/T', () => ({ fields: [field('i', 'int64'), field('u', 'uint64'),
     field('data', 'uint8', { isArray: true }), field('values', 'int64', { isArray: true }), field('label', 'string')] }));
   const codec = rosRepresentation(descriptor);
-  assert.deepEqual(codec.from({ i: -1, u: '18446744073709551615', data: [0, 255], values: [0, '9223372036854775807'], label: '00123' }),
+  assert.deepEqual(codec.from({ i: -1, u: 18446744073709551615n, data: [0, 255], values: [0, '9223372036854775807'], label: '00123' }),
     { i: -1n, u: 18446744073709551615n, data: new Uint8Array([0, 255]), values: [0n, 9223372036854775807n], label: '00123' });
-  // publish先はdecimal string、uint8は通常array。通常stringはそのまま保持する。
+  // publish先はbigint、uint8は通常array。通常stringはそのまま保持する。
   assert.deepEqual(codec.to({ i: -2n, u: 3n, data: new Uint8Array([1, 2]), values: [4n], label: '00123' }),
-    { i: '-2', u: '3', data: [1, 2], values: ['4'], label: '00123' });
+    { i: -2n, u: 3n, data: [1, 2], values: [4n], label: '00123' });
   assert.throws(() => rosRepresentation({ kind: 'integer', bits: 64, signed: true }).from(Number.MAX_SAFE_INTEGER + 1), /unsafe/);
   assert.throws(() => rosRepresentation({ kind: 'bytes' }).from([256]), /range/);
   assert.throws(() => codec.from({ extra: true }), /field count/);

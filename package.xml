@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>ros_webrtc_bridge</name>
+  <version>0.0.0</version>
+  <description>Connection-PoC configurable ROS 2 Topic bridge for WebRTC DataChannels.</description>
+  <maintainer email="35523848+MasakazuTobeta@users.noreply.github.com">Tobeta Masakazu</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <build_depend>nodejs</build_depend>
+
+  <exec_depend>nodejs</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <!-- 同梱設定を使うpackage外装試験で、install済みinterfaceを解決する。 -->
+  <test_depend>geometry_msgs</test_depend>
+  <test_depend>nav_msgs</test_depend>
+  <test_depend>std_msgs</test_depend>
+
+  <!--
+    rclnodejs と WebRTC transport は package-lock.json で固定する npm 依存である。
+    bridge.yaml が参照する ROS interface package は設定を所有する deployment
+    package が exec_depend として宣言する。
+  -->
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

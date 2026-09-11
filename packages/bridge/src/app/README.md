@@ -8,6 +8,8 @@ node -e "import('./.runtime/build/packages/bridge/src/app/cli.js').then(m=>m.mai
 
 ROS 環境を source し、native addon と Werift core の生成を済ませて起動します。ROS の distro / domain / RMW は `ROS_DISTRO`、`ROS_DOMAIN_ID`、`RMW_IMPLEMENTATION` 等の標準環境を使います。CLI は `rclnodejs` を直接使用し、Python sidecar を必要としません。
 
+ament/colconでinstallした場合は`ros2 run ros_webrtc_bridge ros_webrtc_bridge`、または`ros2 launch ros_webrtc_bridge bridge.launch.py`で同じ`cli.main()`を起動します。launch argumentは`config`、`host`、`port`、`node_name`だけです。credential、TLS鍵・証明書、Topic権限はlaunch argumentへ載せず、下記の環境変数から継承します。
+
 | 環境変数 | 必須・既定値 | 用途 |
 |---|---|---|
 | `BRIDGE_CREDENTIAL` | 必須、32 文字以上 | 実行時に発行する単一 Bearer credential |

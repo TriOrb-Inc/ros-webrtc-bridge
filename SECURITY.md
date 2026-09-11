@@ -20,6 +20,7 @@
 - queue、DataChannel送信buffer、cache、peer数を有限にし、遅いpeerが他peerやROS処理を止めないようにする。
 - payload、認証情報、TURN credential、SDP/ICE内の接続情報を既定logに出さない。監査記録は認可結果・拒否理由等に限定し、保存期間とアクセス権を定める。
 - secretはリポジトリや例に埋め込まず、外部設定から供給する。診断データを共有する前に機密情報を除く。
+- `ros2 launch`でもBearer credentialやTLS鍵・証明書をlaunch argumentやcommand lineへ載せず、実行環境から`BRIDGE_CREDENTIAL`、`BRIDGE_TLS_KEY`、`BRIDGE_TLS_CERT`を継承する。
 
 ## ロボット側の責務
 

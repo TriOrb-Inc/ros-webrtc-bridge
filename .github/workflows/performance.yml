@@ -1,0 +1,93 @@
+name: Performance and soak
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Performance profile to execute
+        required: true
+        default: performance
+        type: choice
+        options: [performance, soak]
+  schedule:
+    # 長時間profileはdefault branchで週1回実行し、PRでは短い回帰profileを使う。
+    - cron: '37 2 * * 0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  installed-performance:
+    name: Installed Jazzy / amd64 / Fast-DDS / ${{ github.event_name == 'schedule' && 'soak' || inputs.mode || 'performance' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      PERFORMANCE_MODE: ${{ github.event_name == 'schedule' && 'soak' || inputs.mode || 'performance' }}
+      PERFORMANCE_IMAGE: ros-webrtc-bridge-test:jazzy-fastrtps
+      PERFORMANCE_RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        timeout-minutes: 3
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        timeout-minutes: 5
+        with:
+          node-version: '22.22.2'
+          architecture: x64
+          package-manager-cache: false
+
+      - name: Install locked dependencies and local transport
+        timeout-minutes: 8
+        run: |
+          timeout --kill-after=10s 300s npm ci --ignore-scripts
+          timeout --kill-after=10s 120s npm run prepare:transport
+
+      - name: Install Chromium and system dependencies
+        timeout-minutes: 16
+        run: timeout --kill-after=10s 900s npx --no-install playwright-core install --with-deps chromium
+
+      - name: Build installed ROS test image
+        timeout-minutes: 16
+        run: |
+          timeout --kill-after=15s 900s docker build \
+            -f tests/ros/Dockerfile \
+            --build-arg ROS_IMAGE=ros:jazzy-ros-base-noble \
+            --build-arg BRIDGE_RMW_IMPLEMENTATION=rmw_fastrtps_cpp \
+            -t "${PERFORMANCE_IMAGE}" .
+
+      - name: Run installed performance or soak profile
+        timeout-minutes: 65
+        run: timeout --kill-after=20s 3900s npm run test:performance
+
+      - name: Summarize anonymous metrics
+        if: ${{ always() }}
+        timeout-minutes: 2
+        run: |
+          shopt -s nullglob
+          results=(.runtime/performance-*.json)
+          {
+            echo '### Installed bridge performance'
+            if [[ "${#results[@]}" -eq 0 ]]; then
+              echo 'No result was produced; performance is not confirmed.'
+            else
+              latest="${results[${#results[@]}-1]}"
+              echo '```json'
+              cat "${latest}"
+              echo
+              echo '```'
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"

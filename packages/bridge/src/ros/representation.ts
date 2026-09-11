@@ -15,11 +15,17 @@ export function rosRepresentation(descriptor: Field, options: Partial<CodecOptio
   function convert(field: Field, value: unknown, from: boolean): unknown {
     if (++visited > maxNodes) throw new TypeError('native_node_limit');
     if (field.kind === 'integer' && field.bits === 64) {
-      if (!from) return (value as bigint).toString();
+      // rclnodejs 2.2.0の生成message setterはpublish時にbigintを要求する。
+      if (!from) return value as bigint;
       // ref-napiが返すnumberはsafe integerだけを受理し、精度損失を隠さない。
       if (typeof value === 'number') {
         if (!Number.isSafeInteger(value)) throw new TypeError('unsafe_native_int64');
         return BigInt(value);
+      }
+      // distro/生成方式によってsubscription値はbigintまたはdecimal stringになる。
+      if (typeof value === 'bigint') {
+        const scalar = createCodec(field);
+        return scalar.decode(scalar.encode(value));
       }
       return createCodec(field).decode(value);
     }
@@ -47,7 +53,7 @@ export function rosRepresentation(descriptor: Field, options: Partial<CodecOptio
   return {
     /** ROS入力をbridge nativeへ検証変換。入力: int64=1。出力: 1n。 */
     from(native) { visited = 0; const value = convert(descriptor, native, true); return codec.decode(codec.encode(value)); },
-    /** bridge nativeをROS addonへ検証変換。入力: int64=1n。出力: '1'。 */
+    /** bridge nativeをROS addonへ検証変換。入力: int64=1n。出力: 1n。 */
     to(native) { visited = 0; return convert(descriptor, codec.decode(codec.encode(native)), false); },
   };
 }

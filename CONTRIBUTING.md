@@ -45,11 +45,17 @@ npm ci --ignore-scripts
 npm run prepare:transport
 npm run build
 npm run typecheck
+npm run test:packaging:contract
+npm run test:performance
 ```
 
 buildは前回の`.runtime/build/`を削除してTypeScriptとsource mapを再生成します。`node_modules/`はnpm標準の解決先のためrootに置き、Gitから除外します。lintは未整備です。PR作成・再オープン・PRブランチへの追加pushで[CI](.github/workflows/ci.yml)を実行します。testコマンドと保証範囲は [TESTS.md](TESTS.md#11-実装順序と完了条件)を参照してください。
 
 実行時依存は`yaml 2.9.0`（ISC）、`rclnodejs 2.2.0`（Apache-2.0）、[werift coreのlocal package](vendor/werift-datachannel/README.md)（MIT）です。rclnodejsのinstall・型生成はROS環境で明示実行し、ROS不要のUnitではnativeをロードしません。[ref-napiの通知補完](vendor/rclnodejs-notices/README.md)も配布時に保持してください。
+
+ROS package外装を変更する場合は、対象distroをsourceした環境で`npm rebuild rclnodejs --foreground-scripts`を実行した後、`colcon build`、`colcon test`、install済みの`ros2 run` / `ros2 launch`を確認します。Humble/Jazzyを隔離検証する`npm run test:packaging`の前提、CMake option、動的ROS interface依存は[ROS package化](docs/ros-packaging.md)を参照してください。
+
+通常の`npm run prepare:transport`は同梱済みcoreだけを検証し、networkへ接続しません。上流artifactの再取得とprepared tree更新は依存更新を担当するmaintainerだけが`npm run refresh:transport`で明示実行し、license、notice、個別hash、依存閉包、patch前後hashを同じ変更でレビューしてください。性能・soakの設定値と上書き方法は[性能harness](tests/performance/README.md)を参照してください。
 
 開発依存は`typescript 5.9.3`（Apache-2.0）、`@types/node 22.20.2`（MIT）、`c8 12.0.0`（ISC）、`playwright-core 1.63.0`（Apache-2.0）です。lockfileの推移依存はMIT、ISC、BSD、Apache-2.0、0BSD、Unlicense、[BlueOak-1.0.0](https://blueoakcouncil.org/license/1.0.0)等のpermissive licenseです。依存を配布物へ含める場合は各licenseの通知を同梱してください。
 

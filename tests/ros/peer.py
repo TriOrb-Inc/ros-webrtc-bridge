@@ -9,7 +9,9 @@ from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.utilities import get_rmw_implementation_identifier
 from std_msgs.msg import String
+from bridge_test_interfaces.msg import BridgeFrame
 
 
 class Peer(Node):
@@ -24,10 +26,12 @@ class Peer(Node):
         # 応答経路とTwist観測経路を分け、bridgeのcodec実装は共有しない。
         self.echo = self.create_publisher(String, 'out', qos)
         self.observed = self.create_publisher(String, 'observed', qos)
+        self.custom_echo = self.create_publisher(BridgeFrame, 'custom_out', qos)
         self.create_subscription(String, 'in', self.on_string, qos)
         self.create_subscription(Twist, 'cmd_vel', self.on_twist, qos)
+        self.create_subscription(BridgeFrame, 'custom_in', self.on_custom, qos)
         self.create_timer(4.0, self.status)
-        print('independent ROS peer ready', flush=True)
+        print(f'independent ROS peer ready: rmw={get_rmw_implementation_identifier()}', flush=True)
 
     def on_string(self, message):
         """Stringを独立にechoする。入力例: data='marker'。出力: /outへ同じString。"""
@@ -40,10 +44,15 @@ class Peer(Node):
                   'angular': {'x': message.angular.x, 'y': message.angular.y, 'z': message.angular.z}}
         self.observed.publish(String(data=json.dumps(values, allow_nan=False)))
 
+    def on_custom(self, message):
+        """外部BridgeFrameを独立にechoする。入力例: sequence最大値。出力: /custom_out。"""
+        self.custom_echo.publish(message)
+
     def status(self):
         """進捗を5秒以内に出力する。入力: timer。出力: 対向subscription数。"""
         print(f'peer active: echo observers={self.echo.get_subscription_count()} '
-              f'twist observers={self.observed.get_subscription_count()}', flush=True)
+              f'twist observers={self.observed.get_subscription_count()} '
+              f'custom observers={self.custom_echo.get_subscription_count()}', flush=True)
 
 
 def main():

@@ -42,7 +42,7 @@ export async function createRclnodejsBackend(rcl: RclModule, options: RclOptions
         const representation = rosRepresentation(descriptorFromRos(type, describe), options.codecOptions);
         const publisher = node.createPublisher(type, original(topic), { qos: qos(policy), enableTypedArray: false });
         if (publisher.topic !== topic) throw new Error('ros_publisher_topic_mismatch');
-        // scalar int64はref-napiが受け付けるdecimal stringへ変換する。
+        // scalar int64は生成message setterが要求するbigint表現を維持する。
         return { publish(native) { publisher.publish(representation.to(native)); } };
       },
       /** subscription生成。入力: 型名,ROS名,QoS,callback。出力: void。 */

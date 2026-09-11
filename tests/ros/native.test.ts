@@ -39,6 +39,8 @@ test('実ROS TYPE-01/CFG-02: 連鎖remapを一度だけ適用して独立rclpy�
     { publicName: '/output', rosTopic: '/bridge_test/output_alias', rosType: 'std_msgs/msg/String', direction: 'ros_to_web' },
     { publicName: '/command', rosTopic: '/bridge_test/cmd_vel', rosType: 'geometry_msgs/msg/Twist', direction: 'web_to_ros' },
     { publicName: '/observed', rosTopic: '/bridge_test/observed', rosType: 'std_msgs/msg/String', direction: 'ros_to_web' },
+    { publicName: '/custom_in', rosTopic: '/bridge_test/custom_in', rosType: 'bridge_test_interfaces/msg/BridgeFrame', direction: 'web_to_ros' },
+    { publicName: '/custom_out', rosTopic: '/bridge_test/custom_out', rosType: 'bridge_test_interfaces/msg/BridgeFrame', direction: 'ros_to_web' },
   ].map((item) => ({ ...item, rosTopic: backend.resolveTopic(item.rosTopic), rosQos: { history: 'keep_last', depth: 10, reliability: 'reliable', durability: 'volatile' },
     delivery: 'reliable', maxRateHz: 20, queue: { policy: 'fifo', maxMessages: 10 } })) as TopicBinding[];
   const registry = bindings.map((binding) => ({ binding, codec: createCodec(descriptorFromRos(binding.rosType, backend.describe), { allowNonFinite: false }) }));
@@ -48,8 +50,10 @@ test('実ROS TYPE-01/CFG-02: 連鎖remapを一度だけ適用して独立rclpy�
     adapter.start();
     let echoed: unknown;
     let observed: unknown;
+    let customEchoed: unknown;
     adapter.subscribe('/output', (value) => { echoed = value; });
     adapter.subscribe('/observed', (value) => { observed = JSON.parse((value as { data: string }).data); });
+    adapter.subscribe('/custom_out', (value) => { customEchoed = value; });
     // 固有markerと完全Twistを独立rclpy側の受信結果から検証する。
     const marker = { data: `独立ROS-${process.pid}` };
     await exchange(() => adapter!.publish('/input', marker), () => echoed !== undefined, 15000);
@@ -57,8 +61,13 @@ test('実ROS TYPE-01/CFG-02: 連鎖remapを一度だけ適用して独立rclpy�
     const command = { linear: { x: 0.125, y: -0.5, z: 0 }, angular: { x: 0, y: 0, z: -0.25 } };
     await exchange(() => adapter!.publish('/command', command), () => observed !== undefined, 15000);
     assert.deepEqual(observed, command);
+    const custom = { meta: { source: 'native-test', stamp: { sec: -1, nanosec: 999999999 } },
+      signed_value: -9223372036854775808n, unsigned_value: 18446744073709551615n,
+      payload: new Uint8Array([0, 127, 128, 255]), samples: [0.25, -0.5, 1.5] };
+    await exchange(() => adapter!.publish('/custom_in', custom), () => customEchoed !== undefined, 15000);
+    assert.deepEqual(customEchoed, custom);
     assert.deepEqual(errors, []);
-    console.log('native String and Twist bidirectional validation passed');
+    console.log('native String, Twist, and external BridgeFrame bidirectional validation passed');
   } finally {
     try { adapter?.close(); } finally {
     peer.kill('SIGTERM');

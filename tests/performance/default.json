@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "profiles": {
+    "performance": {
+      "workload": {
+        "peers": 1,
+        "rateHz": 10,
+        "payloadBytes": 256,
+        "warmupSeconds": 3,
+        "durationSeconds": 15,
+        "drainTimeoutSeconds": 10
+      },
+      "timing": {
+        "overallTimeoutSeconds": 90,
+        "resourceSampleSeconds": 1,
+        "heartbeatSeconds": 4
+      },
+      "budgets": {
+        "invariants": {
+          "maxLoss": 0,
+          "maxRejects": 0,
+          "maxUnexpected": 0,
+          "maxRssMiB": 1024,
+          "requireNoCrash": true,
+          "requireNoOom": true,
+          "requireCleanup": true
+        },
+        "provisional": {
+          "maxRttP99Ms": 5000,
+          "maxConnectionP99Ms": 30000,
+          "minThroughputRatio": 0.5,
+          "maxRssGrowthMiBPerHour": 16384
+        }
+      }
+    },
+    "soak": {
+      "workload": {
+        "peers": 1,
+        "rateHz": 10,
+        "payloadBytes": 256,
+        "warmupSeconds": 30,
+        "durationSeconds": 3600,
+        "drainTimeoutSeconds": 30
+      },
+      "timing": {
+        "overallTimeoutSeconds": 3720,
+        "resourceSampleSeconds": 5,
+        "heartbeatSeconds": 4
+      },
+      "budgets": {
+        "invariants": {
+          "maxLoss": 0,
+          "maxRejects": 0,
+          "maxUnexpected": 0,
+          "maxRssMiB": 1024,
+          "requireNoCrash": true,
+          "requireNoOom": true,
+          "requireCleanup": true
+        },
+        "provisional": {
+          "maxRttP99Ms": 5000,
+          "maxConnectionP99Ms": 30000,
+          "minThroughputRatio": 0.5,
+          "maxRssGrowthMiBPerHour": 512
+        }
+      }
+    }
+  }
+}
