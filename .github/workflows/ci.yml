@@ -153,6 +153,7 @@ jobs:
           CONNECTION_TURN: ${{ matrix.turn }}
           CONNECTION_RMW_IMPLEMENTATION: ${{ matrix.rmw }}
           CONNECTION_EXPECTED_ARCH: ${{ matrix.expected_node_arch }}
+          CONNECTION_BUILD_TIMEOUT_MS: '1200000'
         run: |
           echo 'Docker build may be silent; harness reports progress and enforces deadlines. Overall limit: 1800 seconds.'
           timeout --kill-after=15s 1800s npm run test:connection

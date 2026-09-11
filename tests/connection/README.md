@@ -20,8 +20,9 @@ Gatewayの一時Bearer、TLS key/cert、TURN credentialを毎回生成します�
 | `CONNECTION_RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp`（既定）または`rmw_cyclonedds_cpp` |
 | `CONNECTION_EXPECTED_ARCH` | CIで`arm64`または`x64`を実測値と照合 |
 | `CONNECTION_PLATFORM` | 異なるCPUをローカルemulationする場合の`linux/amd64`または`linux/arm64` |
+| `CONNECTION_BUILD_TIMEOUT_MS` | Docker image buildの期限。既定1,200,000ms（20分）、60,000〜1,800,000msで上書き可能 |
 | Gateway設定 | [connection-custom.yaml](../ros/connection-custom.yaml)。標準型、外部独自型、QoS、250ms leaseを固定 |
-| build/pull | 各900秒／180秒で打切り |
+| build/pull | buildは上記設定、pullは180秒で打切り |
 | readiness | 全体30秒、個々のHTTPS要求1秒 |
 | browser helper | setupとscenario共通で各経路120秒、引数`timeoutMs`で1〜600秒へ変更可能。終了処理はclose・kill・終了確認に各3秒 |
 | ROS peer | 本harnessでは360秒、環境変数で対向nodeに注入 |

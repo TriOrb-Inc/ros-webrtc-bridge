@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { verifyBrowserConnection } from '../browser/connection.js';
 import { connectionFailure, parseContainerState, type ContainerState } from './diagnostics.js';
-import { command } from './process.js';
+import { command, parseTimeoutMs } from './process.js';
 
 /** HTTPS readinessをdeadlineまで待つ。入力URL/timeout、出力なし。例: /health=200 → 正常終了。 */
 async function healthy(url: string, timeoutMs: number): Promise<void> {
@@ -49,8 +49,9 @@ async function verify(distro: 'humble' | 'jazzy', relay: boolean, rmw: RmwImplem
     const platform = process.env.CONNECTION_PLATFORM;
     if (platform !== undefined) assert.ok(platform === 'linux/amd64' || platform === 'linux/arm64');
     const platformArgs = platform === undefined ? [] : ['--platform', platform];
+    const buildTimeoutMs = parseTimeoutMs(process.env.CONNECTION_BUILD_TIMEOUT_MS, 1200000, 60000, 1800000);
     await run('build', 'docker', ['build', ...platformArgs, '-f', 'tests/ros/Dockerfile', '--build-arg', `ROS_IMAGE=${base}`,
-      '--build-arg', `BRIDGE_RMW_IMPLEMENTATION=${rmw}`, '-t', image, '.'], { timeoutMs: 900000 });
+      '--build-arg', `BRIDGE_RMW_IMPLEMENTATION=${rmw}`, '-t', image, '.'], { timeoutMs: buildTimeoutMs });
     await run('certificate', 'openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost',
       '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1', '-keyout', join(input, 'key.pem'), '-out', join(input, 'cert.pem')]);
     await chmod(join(input, 'key.pem'), 0o600);
