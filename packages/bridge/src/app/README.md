@@ -34,7 +34,13 @@ ament/colconでinstallした場合は`ros2 run ros_webrtc_bridge ros_webrtc_brid
 
 `BRIDGE_HOST` の未指定は loopback を選びます。明示した空文字は wildcard bind への意図しない拡大を防ぐため起動拒否します。
 
-`GET /health` と認証付き `POST /offer` を提供します。gateway 自身の ICE servers は空で、host candidate を使用します。TURN はブラウザ側へ設定する検証構成です。SIGINT / SIGTERM では session を撤回し、peer、共有 ROS entity、HTTP socket を解放します。常駐中は 5 秒ごとに匿名の状態を表示します。
+`GET /health` と認証付き `POST /offer` を提供します。
+
+同じHTTPS originの `/docs` にSwagger UI、`/openapi.json` と `/openapi.yaml` にHTTP仕様を公開します。これらの閲覧に認証は不要です。UIのCSS/JavaScriptは固定依存 `swagger-ui-dist 5.32.15`（Apache-2.0）から同originで配信し、CDNや外部validatorへ接続しません。実行先は閲覧中のoriginです。Authorizeに入力したcredentialはbrowser memoryだけに保持し、永続保存しません。server側credentialは文書やUIへ注入しません。
+
+OpenAPIは実装済みhealth/offerだけを記述します。ROS TopicのPub/SubはDataChannel上のwire protocolであり、REST endpointとして列挙しません。Try it outで有効なofferを送るには、client側で固定3 DataChannel、ICE gathering、answer適用、ready handshakeを実装する必要があります。
+
+gateway 自身の ICE servers は空で、host candidate を使用します。TURN はブラウザ側へ設定する検証構成です。SIGINT / SIGTERM では session を撤回し、peer、共有 ROS entity、HTTP socket を解放します。常駐中は 5 秒ごとに匿名の状態を表示します。
 
 `registry.ts` は YAML の候補型を構文検証し、native loader で実在する型を全件解決して codec を構築します。schema ID は `sha256:` に、`{codec:'ros-json-v1',descriptor,allowNonFinite}` の canonical JSON を UTF-8 として hash した値を続けます。全 object key を JavaScript string の昇順に再帰整列し、array 順序は維持します。ROS type hash や公開 JSON Schema 文書とは別物です。command guard の有無による非有限値 policy の違いも ID に反映します。
 

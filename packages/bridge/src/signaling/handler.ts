@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { serveSignalingDocs } from './docs.js';
 
 /** 認証済みoffer交換。credentialは実行時注入し、保存・応答・logへ含めない。 */
 export interface SignalingOptions {
@@ -67,6 +68,7 @@ export function createSignalingHandler(options: SignalingOptions) {
       response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Connection': 'close' });
       response.end(JSON.stringify(body));
     }
+    if (serveSignalingDocs(request, response)) return;
     if (request.method === 'GET' && request.url === '/health') { reply(200, { status: 'ready' }); return; }
     if (request.method !== 'POST' || request.url !== '/offer') { reply(404, { error: 'not_found' }); return; }
     // 認証前にSDPをbufferへ蓄積したりPeerConnectionを生成したりしない。

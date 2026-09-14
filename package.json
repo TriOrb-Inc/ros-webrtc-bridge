@@ -26,6 +26,7 @@
   "dependencies": {
     "@ros-webrtc/werift-datachannel": "file:vendor/werift-datachannel",
     "rclnodejs": "2.2.0",
+    "swagger-ui-dist": "5.32.15",
     "yaml": "2.9.0"
   },
   "devDependencies": {

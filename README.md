@@ -41,6 +41,8 @@ Humble／Jazzyごとに専用networkでinstall済みGateway、独立rclpyノー�
 
 常駐起動は、ROS環境でnative依存を準備し、[起動設定](packages/bridge/src/app/README.md)を注入して`npm run bridge`を使います。ブラウザSDK、外向きrendezvous、多ユーザー認証、通信障害の全条件は未整備です。対応範囲と残件は[設計書 §14](docs/design.md#14-モジュール試作の契約と残る接続境界)に記載しています。
 
+HTTPS serverと同じoriginの `/docs` でSwagger UIを閲覧できます。HTTP仕様は `/openapi.json` と `/openapi.yaml` で取得できます。対象は `GET /health` とBearer認証付き `POST /offer` です。Topic Pub/SubはDataChannel契約でありRESTではありません。UIは同梱assetを使い、外部validator通信と認証値の永続保存を無効にしています。
+
 ## ROS 2 packageとして使う
 
 ROS package名は`ros_webrtc_bridge`です。ROS環境でrclnodejsを準備した後、ament/colconでbuild・installできます。

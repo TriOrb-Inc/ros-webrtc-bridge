@@ -73,6 +73,8 @@ ros2 launch ros_webrtc_bridge bridge.launch.py \
 
 ROS remap等は従来どおりJSON string arrayの`BRIDGE_ROS_ARGS`で渡す。wrapperへ追加したcommand-line argumentをROS引数として暗黙解釈しない。
 
+`swagger-ui-dist`の固定CSS/JavaScriptも既定の`node_modules`同梱に含まれるため、install済みentrypointの `/docs` はsource treeやCDNに依存しない。`ROS_WEBRTC_BRIDGE_INSTALL_NODE_MODULES=OFF` の場合は、他のruntime依存と同様にこのpackageもmodule解決位置へ供給する。
+
 ## ROS interface依存
 
 Gatewayが必要とするmessage packageは`bridge.yaml`の`ros_type`で決まるため、core packageだけでは列挙できない。設定を所有するdeployment packageが、利用する`std_msgs`、`geometry_msgs`、独自interface package等を`exec_depend`として宣言する。そのoverlayをsourceした状態で`npm rebuild rclnodejs --foreground-scripts`を実行し、bindingを生成する。
