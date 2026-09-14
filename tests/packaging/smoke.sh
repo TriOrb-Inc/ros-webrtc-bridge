@@ -7,7 +7,7 @@ ros_distro="${ROS_DISTRO:-}"
 smoke_port="${PACKAGING_SMOKE_PORT:-17443}"
 packaging_domain_id="${PACKAGING_ROS_DOMAIN_ID:-75}"
 
-# 必須環境を外部command実行前に検証します。入力はROS_DISTRO、出力はありません。
+# Validate required environment settings before running external commands. Input: ROS_DISTRO; no output.
 if [[ "${ros_distro}" != "humble" && "${ros_distro}" != "jazzy" ]]; then
   echo 'packaging smoke requires ROS_DISTRO=humble or ROS_DISTRO=jazzy' >&2
   exit 2
@@ -29,7 +29,7 @@ workspace="$(mktemp -d "/tmp/ros-webrtc-packaging-${ros_distro}-XXXXXX")"
 secret_dir="$(mktemp -d "/tmp/ros-webrtc-packaging-secret-${ros_distro}-XXXXXX")"
 gateway_pid=''
 
-# 起動中processと一時workspace・秘密値を必ず解放します。入力なし、出力なしです。
+# Always release running processes, temporary workspaces, and secrets. No input or output.
 cleanup() {
   local status=$?
   if [[ -n "${gateway_pid}" ]] && kill -0 "${gateway_pid}" 2>/dev/null; then
@@ -47,7 +47,7 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# 起動したros2 commandへTERMを送り、有限時間で終了することを確認します。
+# Send TERM to the ros2 command we started and verify bounded termination.
 stop_gateway() {
   local name=$1
   local pid="${gateway_pid}"
@@ -79,7 +79,7 @@ stop_gateway() {
   fi
 }
 
-# commandを期限付きで実行し、同じ公開可能logを標準出力と結果directoryへ保存します。
+# Run a command with a deadline; save the same publishable log to stdout and the results directory.
 run_logged() {
   local name=$1
   local timeout_seconds=$2
@@ -88,11 +88,11 @@ run_logged() {
   timeout --kill-after=10s "${timeout_seconds}s" "$@" 2>&1 | tee "${result_dir}/${name}.log"
 }
 
-# 現在の作業treeをjob専用colcon workspaceへコピーし、hostのROS graphやbuild出力と分離します。
+# Copy the working tree into a job-specific colcon workspace, isolated from the host ROS graph and build output.
 package_source="${workspace}/src/${package_name}"
 mkdir -p "${package_source}"
 echo 'packaging smoke: preparing isolated colcon workspace; dependency copy can take up to 60 seconds'
-# Gitに含まれない依存・生成物をすべて除き、CMakeがlocal inputとnpm cacheだけから再構成します。
+# Exclude all untracked dependencies and artifacts; CMake reconstructs them using only local inputs and the npm cache.
 tar --anchored \
   --exclude='./.git' \
   --exclude='./.runtime' \
@@ -104,7 +104,7 @@ tar --anchored \
   -C "${repo_root}" -cf - . | \
   tar -C "${package_source}" -xf -
 
-# clean source契約を先に固定し、host由来のnative addonやmaterialize済みcoreによる偽陽性を防ぎます。
+# Enforce a clean-source contract first to prevent false positives from host native addons or previously materialized core artifacts.
 for relative in .runtime node_modules build install log vendor/werift-datachannel/.runtime; do
   if [[ -e "${package_source}/${relative}" ]]; then
     echo "clean source unexpectedly contains ${relative}" >&2
@@ -120,13 +120,13 @@ if ! grep -Eq "^${package_name}[[:space:]]" "${result_dir}/colcon-list.log"; the
   exit 1
 fi
 
-# build/testはROS package interfaceそのものを通し、npm testだけの成功で代用しません。
+# Run build/tests through the actual ROS package interface; npm test alone is not a substitute.
 run_logged colcon-build 600 bash -lc \
   "source '/opt/ros/${ros_distro}/setup.bash' && cd '${workspace}' && colcon build --packages-select '${package_name}' --event-handlers console_direct+ --cmake-args -DROS_WEBRTC_BRIDGE_RUN_NPM_INSTALL=ON -DROS_WEBRTC_BRIDGE_RUN_RCLNODEJS_REBUILD=ON"
 run_logged colcon-test 420 bash -lc \
   "source '/opt/ros/${ros_distro}/setup.bash' && cd '${workspace}' && colcon test --packages-select '${package_name}' --event-handlers console_direct+ && colcon test-result --verbose"
 
-# install/setupをsourceした利用者視点でament index、entrypoint、共有fileを検査します。
+# Check the ament index, entrypoints, and shared files as a user who sourced install/setup.
 install_setup="${workspace}/install/setup.bash"
 run_logged package-prefix 30 bash -lc \
   "source '/opt/ros/${ros_distro}/setup.bash' && source '${install_setup}' && ros2 pkg prefix '${package_name}'"
@@ -154,8 +154,8 @@ fi
 run_logged launch-arguments 30 bash -lc \
   "source '/opt/ros/${ros_distro}/setup.bash' && source '${install_setup}' && ros2 launch '${package_name}' bridge.launch.py --show-args"
 
-# package成果物へ秘密鍵・具体credentialを同梱していないことを検査します。
-# 公開CA証明書にも使われる.pem拡張子だけではsecretと判定せず、内容を確認します。
+# Verify package artifacts contain no private keys or concrete credentials.
+# Inspect contents: the .pem extension alone does not indicate a secret because public CA certificates also use it.
 if find "${package_prefix}" -type f -name '*.key' -print -quit | grep -q .; then
   echo 'installed package contains a private-key file' >&2
   exit 1
@@ -165,14 +165,14 @@ if grep -R -I -E -q -m 1 -- "-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|(^[
   exit 1
 fi
 
-# credentialとTLS materialはjob専用directoryで生成し、command引数やartifactへ保存しません。
+# Generate credentials and TLS material in job-specific directories, excluding them from command arguments and artifacts.
 credential="$(openssl rand -hex 32)"
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=localhost' \
   -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' \
   -keyout "${secret_dir}/key.pem" -out "${secret_dir}/cert.pem" >/dev/null 2>&1
 chmod 600 "${secret_dir}/key.pem"
 
-# installed ros2 run entrypointを実ROS contextで起動し、HTTPS readyと正常終了を確認します。
+# Start the installed ros2 run entrypoint with a real ROS context; verify HTTPS readiness and clean shutdown.
 export BRIDGE_CREDENTIAL="${credential}"
 export BRIDGE_CONFIG="${share_dir}/examples/connection.yaml"
 export BRIDGE_TLS_KEY="${secret_dir}/key.pem"
@@ -188,7 +188,7 @@ gateway_pid=$!
 node "${repo_root}/tests/packaging/runtime-helper.mjs" health "https://127.0.0.1:${smoke_port}/health" 20000
 stop_gateway 'ros2 run'
 
-# launch fileもinstalled pathから実際にprocessを起動し、構文確認だけで済ませません。
+# Launch an actual process from the installed launch file, not just a syntax check.
 echo 'packaging smoke: starting installed launch file'
 bash -lc "source '/opt/ros/${ros_distro}/setup.bash' && source '${install_setup}' && exec ros2 launch '${package_name}' bridge.launch.py config:='${share_dir}/examples/connection.yaml' host:=127.0.0.1 port:='${smoke_port}' node_name:=ros_webrtc_packaging_smoke" \
   >"${result_dir}/ros2-launch.log" 2>&1 &
@@ -196,7 +196,7 @@ gateway_pid=$!
 node "${repo_root}/tests/packaging/runtime-helper.mjs" health "https://127.0.0.1:${smoke_port}/health" 20000
 stop_gateway 'ros2 launch'
 
-# 未導入interfaceを持つ設定は起動完了せず、dynamic依存をdeployment側へ要求します。
+# Configuration referencing an uninstalled interface must fail startup, requiring the deployment to provide dynamic dependencies.
 missing_config="${secret_dir}/missing-interface.yaml"
 node "${repo_root}/tests/packaging/runtime-helper.mjs" missing-interface-config \
   "${share_dir}/examples/connection.yaml" "${missing_config}"
@@ -213,7 +213,7 @@ if [[ "${missing_status}" -eq 0 || "${missing_status}" -eq 124 || "${missing_sta
   exit 1
 fi
 
-# 公開可能logに実行時credentialが混入していないことを最後に値一致で確認します。
+# Finally, compare values to verify no runtime credential leaked into publishable logs.
 if grep -R -F -q -m 1 -- "${credential}" "${result_dir}"; then
   echo 'runtime credential leaked into packaging smoke logs' >&2
   exit 1

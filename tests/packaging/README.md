@@ -1,19 +1,19 @@
-# ROS package外装試験
+# ROS package integration tests
 
-## 目的
+## Purpose
 
-`ros_webrtc_bridge` のROS package外装を、npm moduleの単体試験や既存の接続試験とは別の層で検証します。対象はcolcon discovery/build/test、install layout、installed entrypoint、launch file、秘密値の非同梱、設定で決まるROS interface依存のfail-fastです。
+Validate the ROS package integration of `ros_webrtc_bridge` separately from npm unit tests and connection tests. The scope covers colcon discovery/build/test, install layout, installed entrypoints, launch files, absence of bundled secrets, and fail-fast behavior for configuration-dependent ROS interfaces.
 
-## 実行範囲
+## Execution scope
 
-`smoke.sh`はROS 2 HumbleまたはJazzy、OpenSSL、colcon、lockfileの全artifactを含むnpm cacheが準備済みのLinux環境で実行します。既存の`tests/ros/Dockerfile`から作るdistro別imageはonline build時にcacheを準備するため、container自体は`--network none`で実行できます。ROS graphは既定で`ROS_DOMAIN_ID=75`かつlocalhost限定にし、並列実行時は`PACKAGING_ROS_DOMAIN_ID`でjob固有値へ変更します。
+Run `smoke.sh` on Linux with ROS 2 Humble or Jazzy, OpenSSL, colcon, and an npm cache containing every lockfile artifact. Distro images built from `tests/ros/Dockerfile` populate the cache during online builds, so the test container can run with `--network none`. The ROS graph defaults to localhost-only and `ROS_DOMAIN_ID=75`; set a job-specific `PACKAGING_ROS_DOMAIN_ID` for parallel runs.
 
 ```bash
 source /opt/ros/${ROS_DISTRO}/setup.bash
 bash tests/packaging/smoke.sh
 ```
 
-network隔離を含む受け入れ確認は、先に通常のDocker buildでimageとnpm cacheを作った後に実行します。`npm ci --offline`はcache不足をnetwork accessへfallbackせず失敗します。
+For acceptance with network isolation, first build the image and npm cache normally. `npm ci --offline` fails on cache misses rather than falling back to network access.
 
 ```bash
 docker run --rm --init --network none \
@@ -22,25 +22,25 @@ docker run --rm --init --network none \
   bash -lc 'source "/opt/ros/${ROS_DISTRO}/setup.bash" && bash tests/packaging/smoke.sh'
 ```
 
-試験は次を順番に確認します。
+The test checks the following in order:
 
-1. `package.xml`、ament依存、実行script、launch、同梱設定の静的契約。
-2. rootとvendorの`node_modules` / `.runtime`、colconの`build` / `install` / `log`を含まないclean sourceの作成。
-3. 隔離workspaceで、cache限定の`npm ci --offline`、rclnodejs rebuild、local transport materializeを含む`colcon build`と、`colcon test` / `colcon test-result`。
-4. install済みament index、package metadata、launch、設定、`ros2 pkg executables`。
-5. install済みの`ros2 run ros_webrtc_bridge ros_webrtc_bridge`からHTTPS healthがreadyになること。
-6. install済みの`ros2 launch ros_webrtc_bridge bridge.launch.py`から同じhealthがreadyになること。
-7. 未導入ROS interfaceを参照する一時設定が、起動完了やtimeoutにならずfail-fastすること。
-8. package成果物と公開可能logに秘密鍵・実行時credentialが含まれないこと。
+1. Static contracts for `package.xml`, ament dependencies, executable scripts, launch files, and bundled configuration.
+2. A clean source copy excluding root/vendor `node_modules` and `.runtime`, plus colcon `build`, `install`, and `log`.
+3. In an isolated workspace, `colcon build` with cache-only `npm ci --offline`, rclnodejs rebuild, and local transport materialization, followed by `colcon test` and `colcon test-result`.
+4. The installed ament index, package metadata, launch files, configuration, and `ros2 pkg executables`.
+5. HTTPS health becomes ready through installed `ros2 run ros_webrtc_bridge ros_webrtc_bridge`.
+6. The same health becomes ready through installed `ros2 launch ros_webrtc_bridge bridge.launch.py`.
+7. A temporary configuration referencing an unavailable ROS interface fails fast rather than completing startup or timing out.
+8. Package artifacts and shareable logs contain neither private keys nor runtime credentials.
 
-credentialと自己署名TLS鍵は`/tmp`の所有directoryへ実行時生成し、終了時に削除します。command引数、リポジトリ、CI artifactへ値を渡しません。診断logは`.runtime/packaging-<distro>-*`へ保存しますが、最後にcredential値との一致を検査します。
+Credentials and self-signed TLS keys are generated at runtime in an owned directory under `/tmp` and removed on exit. Values are not passed in command arguments, repository files, or CI artifacts. Diagnostics are saved under `.runtime/packaging-<distro>-*` and checked for credential matches at the end.
 
-## CIへの組込み
+## CI integration
 
-Humble/Jazzyの既存ROS matrixで、接続試験が生成した各distro imageに対して本scriptを実行します。package外装試験の追加を理由に、既存の独立rclpy native試験、実Chromium direct/TURN UDP接続、Unit/ContractとC0/C1 100%を削除・skipしません。
+The existing Humble/Jazzy ROS matrix runs this script against each distro image created by connection tests. Adding package tests does not remove or skip independent rclpy native tests, real Chromium direct/TURN UDP connections, Unit/Contract tests, or the C0/C1 100% requirement.
 
-`CMakeLists.txt`のCTestから`smoke.sh`を直接登録すると、script内の`colcon test`と再帰するため禁止します。CTestには既存のnpm試験を登録し、外装smokeはCIのROS jobから独立stepとして呼び出します。
+Do not register `smoke.sh` directly with CTest in `CMakeLists.txt`: it would recurse into its own `colcon test`. Register the existing npm tests with CTest and run the packaging smoke script as a separate CI ROS-job step.
 
-## 合格の解釈
+## Interpreting success
 
-本試験の成功は、指定distroのsource checkoutからpackageをbuild/install/起動できることを示します。Debian/bloom配布やclean hostへのbinary installを保証しません。また、amd64、追加RMW、性能・長時間運用は接続・性能・CIの別試験層で判定し、本script単独の成功から対応済みとは扱いません。全体の実施状況と未検証範囲は`TESTS.md`で区別します。
+Success establishes that a package can be built, installed, and started from a source checkout for the specified distro. It does not guarantee Debian/bloom distribution or binary installation on a clean host. amd64, additional RMWs, performance, and long-running operation are assessed by separate connection/performance/CI layers; this script alone does not establish their support. `TESTS.md` distinguishes completed verification from unverified scope.

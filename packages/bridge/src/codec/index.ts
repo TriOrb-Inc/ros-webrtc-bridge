@@ -3,24 +3,24 @@ import { codecOptions, record, snapshotSchema } from './schema.js';
 import type { Codec, CodecOptions, Field, JsonValue } from './types.js';
 export type { Codec, CodecOptions, Field, JsonValue } from './types.js';
 
-/** 検証済みschemaに基づくcodecを作る。入力: {kind:'integer',bits:64,signed:true}。
- * 出力例: codec.encode(42n)==='42', codec.decode('42')===42n。
- * optionsは設定由来の資源上限。違反時はpayloadを含まないTypeErrorを送出する。
+/** Create a codec from a validated schema. Example input: {kind:'integer',bits:64,signed:true}.
+ * Example output: codec.encode(42n)==='42', codec.decode('42')===42n.
+ * Options are configured resource limits. Violations throw TypeError without including the payload.
  */
 export function createCodec(descriptor: Field, overrides: Partial<CodecOptions> = {}): Codec {
   const options = codecOptions(overrides);
   const schema = snapshotSchema(descriptor, options);
-  /** 一回の変換に独立したnode budgetを割り当てる。入力: native, true。出力: wire tree。 */
+  /** Allocate an independent node budget for each conversion. Example input: native, true; output: wire tree. */
   function convert(input: unknown, encode: boolean): unknown {
     let nodes = 0;
-    /** 部分木を再帰変換する。入力: bool,true,0。出力: true。不正時はTypeError。 */
+    /** Recursively convert a subtree. Example input: bool,true,0; output: true. Invalid values throw TypeError. */
     function visit(field: Field, value: unknown, depth: number): unknown {
-      // schemaとpayloadの深さを別々に制限し、循環した入力も有限時間で拒否する。
+      // Limit schema and payload depth separately so cyclic inputs also fail in bounded time.
       requireValue(depth <= options.maxDepth && ++nodes <= options.maxNodes, 'payload complexity');
       if (field.kind === 'array') {
         requireValue(Array.isArray(value), 'array type');
         checkLength(value.length, field, options.maxArrayLength);
-        // hole、追加propertyを暗黙に捨てない。各indexの検査でaccessorも拒否する。
+        // Do not silently discard holes or extra properties. Per-index validation also rejects accessors.
         requireValue(Reflect.ownKeys(value).length === value.length + 1, 'array keys');
         const result: unknown[] = [];
         for (let index = 0; index < value.length; index++) {
@@ -34,7 +34,7 @@ export function createCodec(descriptor: Field, overrides: Partial<CodecOptions> 
         const object = record(value);
         const names = Object.keys(field.fields);
         requireValue(Object.keys(object).length === names.length, 'object field count');
-        // own-propertyを要求し、prototype上のfieldや未知keyへのすり替えを認めない。
+        // Require own properties; reject substitutions using prototype fields or unknown keys.
         return Object.fromEntries(names.map((name) => {
           requireValue(Object.hasOwn(object, name), 'missing field');
           return [name, visit(field.fields[name]!, object[name], depth + 1)];
@@ -44,11 +44,11 @@ export function createCodec(descriptor: Field, overrides: Partial<CodecOptions> 
     }
     return visit(schema, input, 0);
   }
-  // JSON型へのcastは全leafとcontainerを検証したencode境界に限定する。
+  // Restrict the JSON cast to the encode boundary, after every leaf and container has been validated.
   return {
-    /** nativeをwireへ変換する。入力: 42n。出力: '42'（int64 schema）。 */
+    /** Convert native values to wire values. Example: 42n becomes '42' for an int64 schema. */
     encode(native: unknown): JsonValue { return convert(native, true) as JsonValue; },
-    /** wireをnativeへ変換する。入力: '42'。出力: 42n（int64 schema）。 */
+    /** Convert wire values to native values. Example: '42' becomes 42n for an int64 schema. */
     decode(wire: unknown): unknown { return convert(wire, false); },
   };
 }

@@ -1,4 +1,4 @@
-/** maintainerが固定済みupstream artifactからprepared coreを明示更新する。通常buildからは呼ばない。 */
+/** Explicit maintainer refresh from the pinned upstream artifact; never called by normal builds. */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
@@ -14,9 +14,9 @@ assert(Number.isSafeInteger(timeout) && timeout > 0, 'Invalid TRANSPORT_REFRESH_
 const heartbeat = setInterval(() => console.log('Refreshing integrity-pinned Werift core...'), 5000);
 
 /**
- * npm tarの通常fileをメモリへ展開する。
- * @param {Buffer} bytes gunzip済みtar bytes。
- * @returns {Map<string,Buffer>} tar pathから内容へのmap。例: `package/lib/a.js`。
+ * Extract regular files from an npm tar archive into memory.
+ * @param {Buffer} bytes Decompressed tar bytes.
+ * @returns {Map<string,Buffer>} Map from tar paths to contents, for example `package/lib/a.js`.
  */
 function unpack(bytes) {
   const files = new Map();
@@ -27,7 +27,7 @@ function unpack(bytes) {
     const prefix = header.subarray(345, 500).toString().split('\0')[0];
     const size = Number.parseInt(header.subarray(124, 136).toString().replace(/\0/g, '').trim(), 8);
     assert(Number.isSafeInteger(size) && size >= 0 && offset + 512 + size <= bytes.length, 'Invalid tar size');
-    // linkは保存せず、重複pathも拒否して抽出先の曖昧性をなくす。
+    // Skip links and reject duplicate paths to avoid ambiguous extraction targets.
     if (header[156] === 0 || header[156] === 48) {
       const key = prefix ? `${prefix}/${name}` : name;
       assert(!files.has(key), `Duplicate tar path: ${key}`);
@@ -39,7 +39,7 @@ function unpack(bytes) {
 }
 
 try {
-  // network利用はこのmaintainer専用commandへ隔離し、通常prepareから到達させない。
+  // Keep network access in this maintainer-only command, unreachable from normal preparation.
   console.log('Downloading pinned Werift artifact for explicit maintainer refresh');
   const response = await fetch(upstream.tarball, { signal: AbortSignal.timeout(timeout) });
   assert(response.ok, `Download failed: HTTP ${response.status}`);
@@ -53,12 +53,12 @@ try {
     const bytes = archive.get(`package/${name}`);
     assert(bytes, `Missing archive member: ${name}`);
     assert.equal(sha256(bytes), hash, `Changed upstream file: ${name}`);
-    // source mapはruntimeに不要で元TypeScriptも含むため、local inputへ再配布しない。
+    // Omit source maps: runtime does not need them, and they embed the original TypeScript.
     if (!name.endsWith('.map')) selected.set(name, bytes);
   }
   await verifyNotices(directory, upstream.notices);
 
-  // DCEP修正はbefore/after hashと一意置換を固定し、黙ったpatchずれを許可しない。
+  // Pin every patch's before/after hashes and unique replacements to reject silent patch drift.
   const patches = await readJson(path.join(directory, 'patches.json'));
   for (const patch of patches) {
     let source = selected.get(patch.file).toString();
@@ -72,7 +72,7 @@ try {
   }
   verifyGraph(selected, upstream.entries, upstream.external);
 
-  // manifestはpatch後bytesを記録し、次の通常buildがupstream接続なしで全fileを再検証できるようにする。
+  // Record patched bytes so the next normal build can verify every file without contacting upstream.
   const files = Object.fromEntries([...selected].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
     .map(([name, bytes]) => [name, sha256(bytes)]));
   const prepared = {

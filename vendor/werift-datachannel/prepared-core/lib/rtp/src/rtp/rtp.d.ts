@@ -15,9 +15,9 @@ export declare class RtpHeader {
     marker: boolean;
     payloadOffset: number;
     payloadType: number;
-    /**16bit, 初期値はランダムである必要があります*/
+    /**16 bits; the initial value must be random.*/
     sequenceNumber: number;
-    /**32bit microsec (milli/1000), 初期値はランダムである必要があります*/
+    /**32-bit microseconds (milli/1000); the initial value must be random.*/
     timestamp: number;
     ssrc: number;
     csrcLength: number;

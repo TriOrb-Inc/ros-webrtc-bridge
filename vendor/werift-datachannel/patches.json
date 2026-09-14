@@ -14,5 +14,409 @@
         "after": "channelType |=2;"
       }
     ]
+  },
+  {
+    "file": "lib/common/src/binary.js",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "c7df31588953c8e5d45c1a3b4e79bcb99d7379c8ec9db08621175c2dc61cdae0",
+    "afterSha256": "65f90818017b96c53854d53a86c73ef0a2af94050845184e8868e3df38e53d96",
+    "replacements": [
+      {
+        "before": "\u5404value\u304c\u30aa\u30af\u30c6\u30c3\u30c8\u3092\u8de8\u3044\u3067\u306f\u306a\u3089\u306a\u3044",
+        "after": "Each value must fit within a single octet."
+      }
+    ]
+  },
+  {
+    "file": "lib/common/src/binary.d.ts",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "4f28f9f592893878beb6336495aa0589910a1e354bd820a07ba42be32968dabc",
+    "afterSha256": "765269b645f3bc7763f8df16b9478a94981c796afcb9025d54fdce76c2e82d61",
+    "replacements": [
+      {
+        "before": "\u5404value\u304c\u30aa\u30af\u30c6\u30c3\u30c8\u3092\u8de8\u3044\u3067\u306f\u306a\u3089\u306a\u3044",
+        "after": "Each value must fit within a single octet."
+      }
+    ]
+  },
+  {
+    "file": "lib/common/src/event.js",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "306133f6fa3801213638382d5314a55b226693de254b45a8c61ccc8f7d258890",
+    "afterSha256": "063f065cb5809107037170d1f5759253efa8562c84cbab36e6529e9d04eeb3d7",
+    "replacements": [
+      {
+        "before": "complete() \u5f8c\u306e\u518d\u547c\u3073\u51fa\u3057\u3092\u8a31\u5bb9\u3057\u3001close \u7d4c\u8def\u3067\u306e\u4e8c\u91cd\u30af\u30ea\u30fc\u30f3\u30a2\u30c3\u30d7\u3092\u5b89\u5168\u306b\u3059\u308b",
+        "after": "Allow repeated calls after complete() so duplicate cleanup during close is safe."
+      }
+    ]
+  },
+  {
+    "file": "lib/rtp/src/rtcp/header.d.ts",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "a1c68ba754643a0205933068186688203a2789fb4fffa0137962c7d68dc78081",
+    "afterSha256": "cb8206811309bec4c782410616b57526aaf8eecd021213de486a6edd0ae59d88",
+    "replacements": [
+      {
+        "before": "\u3053\u306e\u30d1\u30b1\u30c3\u30c8\u306e\u9577\u3055\u306f\u3001\u30d8\u30c3\u30c0\u30fc\u3068\u4efb\u610f\u306e\u30d1\u30c7\u30a3\u30f3\u30b0\u3092\u542b\u308032\u30d3\u30c3\u30c8\u30ef\u30fc\u30c9\u304b\u3089 1\u3092\u5f15\u3044\u305f\u3082\u306e\u3067\u3042\u308b",
+        "after": "The packet length in 32-bit words, including the header and any padding, minus one."
+      }
+    ]
+  },
+  {
+    "file": "lib/rtp/src/rtcp/header.js",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "6de119bf578fd16b809c5009f496ca2a91612403b23ca67e98203ef2966aae02",
+    "afterSha256": "960fe38e715c583153706730f09d106885646475349aa565ab72fd688d96b8b1",
+    "replacements": [
+      {
+        "before": "\u3053\u306e\u30d1\u30b1\u30c3\u30c8\u306e\u9577\u3055\u306f\u3001\u30d8\u30c3\u30c0\u30fc\u3068\u4efb\u610f\u306e\u30d1\u30c7\u30a3\u30f3\u30b0\u3092\u542b\u308032\u30d3\u30c3\u30c8\u30ef\u30fc\u30c9\u304b\u3089 1\u3092\u5f15\u3044\u305f\u3082\u306e\u3067\u3042\u308b",
+        "after": "The packet length in 32-bit words, including the header and any padding, minus one."
+      }
+    ]
+  },
+  {
+    "file": "lib/rtp/src/rtp/rtp.d.ts",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "6badc94544743ee11deab79cb3c1f46cb54451ace131f143a0fb0796e723a937",
+    "afterSha256": "78f102c25eb34ed9b33a123219445dc0bfd8dd4705a77d81c3d34d9853aeaa7e",
+    "replacements": [
+      {
+        "before": "16bit, \u521d\u671f\u5024\u306f\u30e9\u30f3\u30c0\u30e0\u3067\u3042\u308b\u5fc5\u8981\u304c\u3042\u308a\u307e\u3059",
+        "after": "16 bits; the initial value must be random."
+      },
+      {
+        "before": "32bit microsec (milli/1000), \u521d\u671f\u5024\u306f\u30e9\u30f3\u30c0\u30e0\u3067\u3042\u308b\u5fc5\u8981\u304c\u3042\u308a\u307e\u3059",
+        "after": "32-bit microseconds (milli/1000); the initial value must be random."
+      }
+    ]
+  },
+  {
+    "file": "lib/rtp/src/rtp/rtp.js",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "d18c9ad78ef732023f137374ef71ad4dc897516dd4175ec42973ebdee3e6d361",
+    "afterSha256": "9470802f201fc11e59a252b0e093f802e21ca3db41de9def49c6bf1c560b2118",
+    "replacements": [
+      {
+        "before": "16bit, \u521d\u671f\u5024\u306f\u30e9\u30f3\u30c0\u30e0\u3067\u3042\u308b\u5fc5\u8981\u304c\u3042\u308a\u307e\u3059",
+        "after": "16 bits; the initial value must be random."
+      },
+      {
+        "before": "32bit microsec (milli/1000), \u521d\u671f\u5024\u306f\u30e9\u30f3\u30c0\u30e0\u3067\u3042\u308b\u5fc5\u8981\u304c\u3042\u308a\u307e\u3059",
+        "after": "32-bit microseconds (milli/1000); the initial value must be random."
+      },
+      {
+        "before": "1\u30d0\u30a4\u30c8\u3067\u53ce\u307e\u3089\u306a\u304f\u306a\u3063\u305f\u6b74\u53f2\u7684\u7d4c\u7def",
+        "after": "Introduced when extension values no longer fit in one byte."
+      }
+    ]
+  },
+  {
+    "file": "lib/rtp/src/codec/leb128.js",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "58f06132e3b49da8880b3006cc64ed0f36732f16bdfbb6e8c8a28e56ef50e444",
+    "afterSha256": "dfa24a79ed45ce60909b03a2c82563d0f7abde82fb5ed7ce284a1f72fd9a23f4",
+    "replacements": [
+      {
+        "before": "Unsigned LEB128 encoder\uff08package-private\uff09\u3002",
+        "after": "Unsigned LEB128 encoder (package-private)."
+      },
+      {
+        "before": "`codec/index.ts` \u306e public barrel \u304b\u3089\u306f re-export \u3057\u306a\u3044\u3002decode \u306f `av1.ts` \u5074\u306e\u516c\u958b API \u3092\u7dad\u6301\u3059\u308b\u3002",
+        "after": "Not re-exported from the public barrel in `codec/index.ts`; decoding remains part of the public API in `av1.ts`."
+      }
+    ]
+  },
+  {
+    "file": "lib/rtp/src/codec/h264.js",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "4e2cc990d3d29ed58383dced9638a076c9a91e05685186e175f3db06f682d6ff",
+    "afterSha256": "daea040fdcca7ede8d76a8de7f2bdbbc4f0f414cf5c92afffb34cb6e6b21e922",
+    "replacements": [
+      {
+        "before": "\u30c7\u30d5\u30a9\u30eb\u30c8\u3067\u306f packetization-mode=0",
+        "after": "The default is packetization-mode=0."
+      },
+      {
+        "before": "packetization-mode=0\u3060\u3068Single NAL Unit Packet\u3057\u304b\u6765\u306a\u3044",
+        "after": "With packetization-mode=0, only Single NAL Unit Packets are received."
+      }
+    ]
+  },
+  {
+    "file": "lib/rtp/src/rtp/red/packet.d.ts",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "54c23bd4714137908e8d925213d7c716dd3cf8cac52f75a9ecaffd0d3710d2fe",
+    "afterSha256": "f836842ab86873a5f7a83076b28be9973730fe91796bf6c82c73f863ec3f5c5e",
+    "replacements": [
+      {
+        "before": "\u30d8\u30c3\u30c0\u30fc\u306e\u6700\u521d\u306e\u30d3\u30c3\u30c8\u306f\u3001\u5225\u306e\u30d8\u30c3\u30c0\u30fc\u30d6\u30ed\u30c3\u30af\u304c\u7d9a\u304f\u304b\u3069\u3046\u304b\u3092\u793a\u3059\u3002 1\u306e\u5834\u5408\u306f\u3001\u3055\u3089\u306b\u30d8\u30c3\u30c0\u30fc\u30d6\u30ed\u30c3\u30af\u304c\u7d9a\u304d\u30010\u306e\u5834\u5408\u306f\u3001\u3053\u308c\u304c\u6700\u5f8c\u306e\u30d8\u30c3\u30c0\u30fc\u30d6\u30ed\u30c3\u30af\u3068\u306a\u308a\u307e\u3059\u3002",
+        "after": "The first header bit indicates whether another header block follows: 1 means another block follows; 0 marks the last header block."
+      }
+    ]
+  },
+  {
+    "file": "lib/ice/src/candidate.js",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "29bf4a78fdd01df299ac86cfa4ba01a26696e96428ad0e980b13c2339ae682c3",
+    "afterSha256": "54d36c428a920c557cd65a882d146b6a724aa8b2668b51b6b81825747fb35bb9",
+    "replacements": [
+      {
+        "before": "\u56fa\u5b9a\u30ef\u30fc\u30c9",
+        "after": "Fixed keywords."
+      },
+      {
+        "before": "priority\u3092\u6c7a\u3081\u308b",
+        "after": "Determine the priority."
+      }
+    ]
+  },
+  {
+    "file": "lib/ice/src/ice.js",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "ef1a0bbbc8924a26ae62cf567c1a5af903e023695f74e992b6eb06a61726ea16",
+    "afterSha256": "1cef71f688668198dfd1a717d1974215703fa58f1910fc66af34ccc77c712454",
+    "replacements": [
+      {
+        "before": "P2P\u63a5\u7d9a\u5b8c\u4e86\u3057\u305f\u30bd\u30b1\u30c3\u30c8",
+        "after": "Sockets with established P2P connections."
+      },
+      {
+        "before": "protocols\u306fincoming\u306eearlyCheck\u306b\u4f7f\u3046\u304b\u3082\u3057\u308c\u306a\u3044\u306e\u3067\u6b8b\u3059",
+        "after": "Keep protocols because incoming earlyCheck may use them."
+      },
+      {
+        "before": "\u76f8\u624b\u306b\u3068\u3063\u3066\u306eremote\u306f\u81ea\u5206\u306b\u3068\u3063\u3066\u306elocal",
+        "after": "The peer's remote address is our local address."
+      },
+      {
+        "before": "ice restart\u3067\u540c\u3058\u30a2\u30c9\u30ec\u30b9\u304c\u8ffd\u52a0\u3055\u308c\u308b\u306e\u3092\u9632\u3050",
+        "after": "Prevent duplicate addresses from being added during ICE restart."
+      },
+      {
+        "before": "remote\u306egeneration\u3092\u30c1\u30a7\u30c3\u30af\u3059\u308b.local\u306egeneration\u306f\u66f4\u65b0\u304c\u9593\u306b\u5408\u308f\u306a\u3044\u304b\u3082\u3057\u308c\u306a\u3044\u306e\u3067\u30c1\u30a7\u30c3\u30af\u3057\u306a\u3044",
+        "after": "Check the remote generation; the local generation may not have been updated yet."
+      },
+      {
+        "before": "7.2.1.3\u30017.2.1.4\u3001\u304a\u3088\u30737.2.1.5",
+        "after": "Sections 7.2.1.3, 7.2.1.4, and 7.2.1.5."
+      }
+    ]
+  },
+  {
+    "file": "lib/ice/src/internal/selectAddresses.js",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "3fb06b15c3194773e7ce245bb351e4914b77885ef2d593792434da34f0eab702",
+    "afterSha256": "bf489b44d2cffbece021eec949e18b02e089288000b6b94f5dffba489dbb1d4f",
+    "replacements": [
+      {
+        "before": "Interface \u8f9e\u66f8\u304b\u3089 host \u5019\u88dc\u30a2\u30c9\u30ec\u30b9\u3092\u9078\u5225\u3059\u308b\uff08package-private\uff09\u3002",
+        "after": "Select host candidate addresses from the interface dictionary (package-private)."
+      },
+      {
+        "before": "\u516c\u958b barrel (`src/index.ts`) \u304b\u3089\u306f export \u3057\u306a\u3044\u3002",
+        "after": "Not exported from the public barrel (`src/index.ts`)."
+      },
+      {
+        "before": "\u30c6\u30b9\u30c8\u306f\u672c helper \u3078\u306e\u4f9d\u5b58\u6ce8\u5165\u3067\u884c\u3046\u3002",
+        "after": "Tests inject dependencies into this helper."
+      }
+    ]
+  },
+  {
+    "file": "lib/webrtc/src/transceiverManager.d.ts",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "e0eed7b3af92bd96d6b39990e0039592c8f4eeddd5952d50c6da31c8e7a8c9f9",
+    "afterSha256": "ab5ea51ee380c539904a9c28eb260dcf42e59606a261f8eea7818607c7d544aa",
+    "replacements": [
+      {
+        "before": "\u5168\u30c8\u30e9\u30f3\u30b7\u30fc\u30d0\u30fc\u306ereceiver/sender\u306estop\u3092\u547c\u3076close\u30e1\u30bd\u30c3\u30c9",
+        "after": "Close by calling stop on every transceiver's receiver and sender."
+      }
+    ]
+  },
+  {
+    "file": "lib/webrtc/src/sdpManager.d.ts",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "3a5a26b169a70a056ed8743e08c8d59e4d511bd90900541ac180ed7075782f1c",
+    "afterSha256": "33c213226b5f1a001f85c2151054d5aa7a152039710abba7a4fb352ca2cf4444",
+    "replacements": [
+      {
+        "before": "MediaDescription\u3092\u30c8\u30e9\u30f3\u30b7\u30fc\u30d0\u30fc\u7528\u306b\u4f5c\u6210",
+        "after": "Create a MediaDescription for the transceiver."
+      },
+      {
+        "before": "MediaDescription\u3092SCTP\u7528\u306b\u4f5c\u6210",
+        "after": "Create a MediaDescription for SCTP."
+      },
+      {
+        "before": "\u30c8\u30e9\u30f3\u30b9\u30dd\u30fc\u30c8\u306e\u60c5\u5831\u3092MediaDescription\u306b\u8ffd\u52a0",
+        "after": "Add transport information to the MediaDescription."
+      },
+      {
+        "before": "\u4e00\u610f\u306eMID\u3092\u5272\u308a\u5f53\u3066",
+        "after": "Assign a unique MID."
+      },
+      {
+        "before": "\u30aa\u30d5\u30a1\u30fcSDP\u3092\u69cb\u7bc9",
+        "after": "Build the offer SDP."
+      },
+      {
+        "before": "\u30a2\u30f3\u30b5\u30fcSDP\u3092\u69cb\u7bc9",
+        "after": "Build the answer SDP."
+      },
+      {
+        "before": "\u30ed\u30fc\u30ab\u30eb\u30bb\u30c3\u30b7\u30e7\u30f3\u8a18\u8ff0\u3092\u8a2d\u5b9a\u3057\u3001\u30c8\u30e9\u30f3\u30b9\u30dd\u30fc\u30c8\u60c5\u5831\u3092\u8ffd\u52a0\u3059\u308b",
+        "after": "Set the local session description and add transport information."
+      }
+    ]
+  },
+  {
+    "file": "lib/webrtc/src/peerConnection.js",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "1613dad094dd14561d46b3e937d72f4cf68997d0dd415c36efb4478269705426",
+    "afterSha256": "754c8cdaaf5495f39661405f20c9b5b46b72297195b8b633fbf5a4705d7c8a77",
+    "replacements": [
+      {
+        "before": "\u516c\u958b Event \u3092\u5b8c\u4e86\u3055\u305b\u3001\u8cfc\u8aad\u8005\u30fb\u30af\u30ed\u30fc\u30b8\u30e3\u304c PeerConnection \u3092\u4fdd\u6301\u3057\u7d9a\u3051\u306a\u3044\u3088\u3046\u306b\u3059\u308b",
+        "after": "Complete public events so subscribers and closures no longer retain the PeerConnection."
+      }
+    ]
+  },
+  {
+    "file": "lib/webrtc/src/secureTransportManager.js",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "aea80d0f9638259a617815a5295354e725fc34b8302cec7281c26732d89b9cff",
+    "afterSha256": "edaf9977cb36464f55dfff695b7b05622cb59fb5704b9728050549a1403b7ab8",
+    "replacements": [
+      {
+        "before": "\u30a8\u30e9\u30fc\u30cf\u30f3\u30c9\u30ea\u30f3\u30b0\u3092\u8ffd\u52a0 (\u4f8b: \u30ed\u30b0\u51fa\u529b)",
+        "after": "Add error handling (for example, logging)."
+      }
+    ]
+  },
+  {
+    "file": "lib/webrtc/src/transceiverManager.js",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "7f5c284312ec8ad797f1a0784a7dc49e2ea48e4f5b2cb3ee9a19d4e51c26026d",
+    "afterSha256": "8102261484a33089d7090b1e479a1f3f46615860e9bcc6ef4c8a02c56134345b",
+    "replacements": [
+      {
+        "before": "\u5168\u30c8\u30e9\u30f3\u30b7\u30fc\u30d0\u30fc\u306ereceiver/sender\u306estop\u3092\u547c\u3076close\u30e1\u30bd\u30c3\u30c9",
+        "after": "Close by calling stop on every transceiver's receiver and sender."
+      }
+    ]
+  },
+  {
+    "file": "lib/webrtc/src/sdpManager.js",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "08a12dedabd5e4d30ff5121728ba6a81f961f4b294e2c3f68fd2d438a0ef568a",
+    "afterSha256": "b821a8f4c018190bdf8c14583a2fa05d0d7d114aca1f01f25ad07f2f27a2122d",
+    "replacements": [
+      {
+        "before": "MediaDescription\u3092\u30c8\u30e9\u30f3\u30b7\u30fc\u30d0\u30fc\u7528\u306b\u4f5c\u6210",
+        "after": "Create a MediaDescription for the transceiver."
+      },
+      {
+        "before": "MediaDescription\u3092SCTP\u7528\u306b\u4f5c\u6210",
+        "after": "Create a MediaDescription for SCTP."
+      },
+      {
+        "before": "\u30c8\u30e9\u30f3\u30b9\u30dd\u30fc\u30c8\u306e\u60c5\u5831\u3092MediaDescription\u306b\u8ffd\u52a0",
+        "after": "Add transport information to the MediaDescription."
+      },
+      {
+        "before": "\u4e00\u610f\u306eMID\u3092\u5272\u308a\u5f53\u3066",
+        "after": "Assign a unique MID."
+      },
+      {
+        "before": "\u30aa\u30d5\u30a1\u30fcSDP\u3092\u69cb\u7bc9",
+        "after": "Build the offer SDP."
+      },
+      {
+        "before": "\u30a2\u30f3\u30b5\u30fcSDP\u3092\u69cb\u7bc9",
+        "after": "Build the answer SDP."
+      },
+      {
+        "before": "\u30ed\u30fc\u30ab\u30eb\u30bb\u30c3\u30b7\u30e7\u30f3\u8a18\u8ff0\u3092\u8a2d\u5b9a\u3057\u3001\u30c8\u30e9\u30f3\u30b9\u30dd\u30fc\u30c8\u60c5\u5831\u3092\u8ffd\u52a0\u3059\u308b",
+        "after": "Set the local session description and add transport information."
+      },
+      {
+        "before": "Simulcast\u306b\u95a2\u3059\u308b\u51e6\u7406",
+        "after": "Handle simulcast."
+      }
+    ]
+  },
+  {
+    "file": "lib/webrtc/src/media/rtpTransceiver.d.ts",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "039a596a2cc4a462edb9cab3900baf7bd49ed20069a7b677d0b37a89723c836d",
+    "afterSha256": "a488dc3e2ab329b1472dcf01d6260fd38dd9da64d9bbfe23dfd73a1ca5926d47",
+    "replacements": [
+      {
+        "before": "RFC 8829 4.2.4. setDirection\u306b\u6e21\u3055\u308c\u305f\u6700\u5f8c\u306e\u5024\u3092\u793a\u3057\u307e\u3059",
+        "after": "RFC 8829 section 4.2.4: the last value passed to setDirection."
+      }
+    ]
+  },
+  {
+    "file": "lib/webrtc/src/media/rtpTransceiver.js",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "b8cd8f65be5bd393da64f8bdd9077193b0b52069520b39f3cb8f03522c89e74d",
+    "afterSha256": "41aa85fe1fd01c06b2d8ec4f76c41432e780837c1b732c6f746f801661e3efa5",
+    "replacements": [
+      {
+        "before": "RFC 8829 4.2.4. setDirection\u306b\u6e21\u3055\u308c\u305f\u6700\u5f8c\u306e\u5024\u3092\u793a\u3057\u307e\u3059",
+        "after": "RFC 8829 section 4.2.4: the last value passed to setDirection."
+      }
+    ]
+  },
+  {
+    "file": "lib/webrtc/src/media/router.js",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "aeb0ea6ad650194f6e97ca22b2d632645a43688b23659c73de78608af6191c16",
+    "afterSha256": "d28d0b2b401161b703d5217a7ac37d7ddb89ed8dd61088fa94a31159665b3194",
+    "replacements": [
+      {
+        "before": "\u30b5\u30a4\u30de\u30eb\u30ad\u30e3\u30b9\u30c8\u5229\u7528\u6642\u306eRTX\u3092\u30b5\u30dd\u30fc\u30c8\u3057\u3066\u3044\u306a\u3044\u306e\u3067codecs/encodings\u306f\u5e38\u306b\u4e00\u3064",
+        "after": "There is always one codec/encoding because RTX with simulcast is not supported."
+      }
+    ]
+  },
+  {
+    "file": "lib/sctp/src/sctp.js",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "d42d8d7ee7d41e0a6fb9897efe492cf85cc65c286fff64751b42b42e4e6a38cc",
+    "afterSha256": "ad87cb30e6bbde3889fa4964ad5ceb72b28caf72fba26c83df76af3d971602df",
+    "replacements": [
+      {
+        "before": "\u521d\u671fTSN\u3068\u540c\u3058\u5024\u306b\u521d\u671f\u5316\u3055\u308c\u308b\u5358\u8abf\u306b\u5897\u52a0\u3059\u308b\u6570\u3067\u3059. \u3053\u308c\u306f\u3001\u65b0\u3057\u3044re-configuration request\u30d1\u30e9\u30e1\u30fc\u30bf\u30fc\u3092\u9001\u4fe1\u3059\u308b\u305f\u3073\u306b1\u305a\u3064\u5897\u52a0\u3057\u307e\u3059",
+        "after": "A monotonically increasing number initialized to the initial TSN; incremented for each new re-configuration request parameter sent."
+      },
+      {
+        "before": "\u3053\u306e\u30d5\u30a3\u30fc\u30eb\u30c9\u306f\u3001incoming\u8981\u6c42\u306ere-configuration request\u30b7\u30fc\u30b1\u30f3\u30b9\u756a\u53f7\u3092\u4fdd\u6301\u3057\u307e\u3059. \u4ed6\u306e\u5834\u5408\u3067\u306f\u3001\u6b21\u306b\u4e88\u60f3\u3055\u308c\u308bre-configuration request\u30b7\u30fc\u30b1\u30f3\u30b9\u756a\u53f7\u304b\u30891\u3092\u5f15\u3044\u305f\u5024\u304c\u4fdd\u6301\u3055\u308c\u307e\u3059",
+        "after": "Holds the re-configuration request sequence number of the incoming request; otherwise holds one less than the next expected request sequence number."
+      },
+      {
+        "before": "cookie timestamp \u306f\u79d2\u5358\u4f4d\u306e\u6574\u6570 (\u5c0f\u6570\u3092\u6df7\u5165\u3055\u305b\u306a\u3044)",
+        "after": "The cookie timestamp is an integer number of seconds (no fractional part)."
+      }
+    ]
+  },
+  {
+    "file": "lib/sctp/src/sctp.d.ts",
+    "reason": "Translate upstream explanatory comments into English; executable code and declarations are unchanged.",
+    "beforeSha256": "a00768c6e183c5778a4db67cb1447451d97e36271f3308f7c358d0b63828b35f",
+    "afterSha256": "c1afd5afa11f004113d8cdfff91451f40e77a947c8c02d85ff7f3d309ab95f1d",
+    "replacements": [
+      {
+        "before": "\u521d\u671fTSN\u3068\u540c\u3058\u5024\u306b\u521d\u671f\u5316\u3055\u308c\u308b\u5358\u8abf\u306b\u5897\u52a0\u3059\u308b\u6570\u3067\u3059. \u3053\u308c\u306f\u3001\u65b0\u3057\u3044re-configuration request\u30d1\u30e9\u30e1\u30fc\u30bf\u30fc\u3092\u9001\u4fe1\u3059\u308b\u305f\u3073\u306b1\u305a\u3064\u5897\u52a0\u3057\u307e\u3059",
+        "after": "A monotonically increasing number initialized to the initial TSN; incremented for each new re-configuration request parameter sent."
+      },
+      {
+        "before": "\u3053\u306e\u30d5\u30a3\u30fc\u30eb\u30c9\u306f\u3001incoming\u8981\u6c42\u306ere-configuration request\u30b7\u30fc\u30b1\u30f3\u30b9\u756a\u53f7\u3092\u4fdd\u6301\u3057\u307e\u3059. \u4ed6\u306e\u5834\u5408\u3067\u306f\u3001\u6b21\u306b\u4e88\u60f3\u3055\u308c\u308bre-configuration request\u30b7\u30fc\u30b1\u30f3\u30b9\u756a\u53f7\u304b\u30891\u3092\u5f15\u3044\u305f\u5024\u304c\u4fdd\u6301\u3055\u308c\u307e\u3059",
+        "after": "Holds the re-configuration request sequence number of the incoming request; otherwise holds one less than the next expected request sequence number."
+      }
+    ]
   }
 ]

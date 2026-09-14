@@ -165,7 +165,7 @@ class Connection {
             writable: true,
             value: []
         });
-        // P2P接続完了したソケット
+        // Sockets with established P2P connections.
         Object.defineProperty(this, "nominated", {
             enumerable: true,
             configurable: true,
@@ -648,7 +648,7 @@ class Connection {
         this.earlyChecks = [];
         this.earlyChecksDone = false;
         this.localCandidatesStart = false;
-        // protocolsはincomingのearlyCheckに使うかもしれないので残す
+        // Keep protocols because incoming earlyCheck may use them.
         for (const protocol of this.protocols) {
             if (protocol.localCandidate) {
                 protocol.localCandidate.refreshId();
@@ -715,7 +715,7 @@ class Connection {
                 return;
             }
             const txUsername = msg.getAttributeValue("USERNAME");
-            // 相手にとってのremoteは自分にとってのlocal
+            // The peer's remote address is our local address.
             const { remoteUsername: localUsername } = decodeTxUsername(txUsername);
             const localPassword = this.userHistory[localUsername] ?? this.localPassword;
             const { iceControlling } = this;
@@ -787,7 +787,7 @@ class Connection {
             turnUsername &&
             turnPassword;
         addresses = addresses.filter((address) => {
-            // ice restartで同じアドレスが追加されるのを防ぐ
+            // Prevent duplicate addresses from being added during ICE restart.
             if (this.protocols.find((protocol) => protocol.localIp === address)) {
                 return false;
             }
@@ -1222,7 +1222,7 @@ class Connection {
             // concludes the ICE processing for that component.  See Section 8.
             // So disallow overwriting of the pair nominated for that component
             if (pair.nominated &&
-                // remoteのgenerationをチェックする.localのgenerationは更新が間に合わないかもしれないのでチェックしない
+                // Check the remote generation; the local generation may not have been updated yet.
                 (pair.remoteCandidate.generation != undefined
                     ? pair.remoteCandidate.generation === this.generation
                     : true) &&
@@ -1292,7 +1292,7 @@ class Connection {
         this.sortCheckList();
     }
     // 7.2.  STUN Server Procedures
-    // 7.2.1.3、7.2.1.4、および7.2.1.5
+    // Sections 7.2.1.3, 7.2.1.4, and 7.2.1.5.
     checkIncoming(message, addr, protocol) {
         // """
         // Handle a successful incoming check.

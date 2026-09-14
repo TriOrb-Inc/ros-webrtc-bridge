@@ -36,7 +36,7 @@ class RtcpHeader {
             writable: true,
             value: 0
         });
-        /**このパケットの長さは、ヘッダーと任意のパディングを含む32ビットワードから 1を引いたものである */
+        /**The packet length in 32-bit words, including the header and any padding, minus one. */
         Object.defineProperty(this, "length", {
             enumerable: true,
             configurable: true,

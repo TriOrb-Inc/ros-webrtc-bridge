@@ -1,6 +1,6 @@
 import type { Channel } from '../router/types.js';
 
-/** weriftの必要部分だけを表す。テストでは同じ境界をfakeで注入する。 */
+/** Minimal werift surface. Tests inject fakes at the same boundary. */
 export interface Signal<T extends unknown[]> {
   subscribe(callback: (...args: T) => void): { unSubscribe(): void };
 }

@@ -339,7 +339,7 @@ class TransceiverManager {
         return rootIds;
     }
     /**
-     * 全トランシーバーのreceiver/senderのstopを呼ぶcloseメソッド
+     * Close by calling stop on every transceiver's receiver and sender.
      */
     close() {
         for (const transceiver of this.transceivers) {

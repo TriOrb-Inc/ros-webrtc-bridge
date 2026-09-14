@@ -1,6 +1,6 @@
 import type { Distribution, ScenarioInput, ScenarioResult } from './types.js';
 
-/** browser内の単調clockだけで実WebRTC→ROS echo→Webを計測する。入力: runtime接続情報とworkload、出力: 匿名統計。 */
+/** Measure real WebRTC-to-ROS-echo-to-Web using only the browser monotonic clock. Inputs: runtime connection details and workload; returns anonymized statistics. */
 export async function performanceScenario(input: ScenarioInput): Promise<ScenarioResult> {
   type Wire = Record<string, any>;
   type Pending = { readonly startedMs: number; readonly measured: boolean; readonly payload: string };
@@ -13,18 +13,18 @@ export async function performanceScenario(input: ScenarioInput): Promise<Scenari
   let phase: 'setup' | 'warmup' | 'measure' | 'drain' = 'setup';
   let sent = 0, rejected = 0, unexpected = 0;
 
-  /** 固定stageで条件を検証する。入力例: (true,'stage')、出力なし。 */
+  /** Check conditions using fixed stages. Example: (true,'stage'); no output. */
   function check(condition: unknown, stage: string): asserts condition {
     if (!condition) throw new Error(stage);
   }
 
-  /** 全体deadline内で短く待つ。入力: 最大ms、出力: timer完了。 */
+  /** Wait briefly within the overall deadline. Input: maximum ms; output: timer completion. */
   async function tick(milliseconds = 10): Promise<void> {
     check(performance.now() < deadline, 'scenario_deadline');
     await new Promise<void>(resolve => setTimeout(resolve, Math.max(1, Math.min(milliseconds, deadline - performance.now()))));
   }
 
-  /** 条件を単調deadlineまで待つ。入力: predicate/stage/上限、出力なし。 */
+  /** Wait for a condition until a monotonic deadline. Inputs: predicate/stage/limit; no output. */
   async function until(condition: () => boolean, stage: string, timeoutMs = 20000): Promise<void> {
     const expires = Math.min(deadline, performance.now() + timeoutMs);
     while (!condition()) {
@@ -33,13 +33,13 @@ export async function performanceScenario(input: ScenarioInput): Promise<Scenari
     }
   }
 
-  /** 指定channelへversion付きwireを送る。入力: channel/envelope、出力なし。 */
+  /** Send a versioned wire envelope to a channel. Inputs: channel/envelope; no output. */
   function send(channel: RTCDataChannel, wire: Wire): void {
     check(channel.readyState === 'open', 'channel_not_open');
     channel.send(JSON.stringify({ v: 1, ...wire }));
   }
 
-  /** control応答queueから一致する値を有限待機で消費する。入力: connection/predicate/stage、出力: wire。 */
+  /** Consume matching control responses with a bounded wait. Inputs: connection/predicate/stage; returns a wire value. */
   async function receive(connection: Connection, predicate: (wire: Wire) => boolean, stage: string): Promise<Wire> {
     let found = -1;
     await until(() => {
@@ -50,7 +50,7 @@ export async function performanceScenario(input: ScenarioInput): Promise<Scenari
     return connection.messages.splice(found, 1)[0]!;
   }
 
-  /** request ID付きcontrolを送り期待operationを待つ。入力: connection/op/fields/expected、出力: response。 */
+  /** Send control with a request ID and await the expected operation. Inputs: connection/op/fields/expected; returns a response. */
   async function request(connection: Connection, op: string, fields: Wire, expected: string): Promise<Wire> {
     const id = `r${++connection.request}`;
     send(connection.control, { op, id, ...fields });
@@ -59,14 +59,14 @@ export async function performanceScenario(input: ScenarioInput): Promise<Scenari
     return response;
   }
 
-  /** echo識別子を固定byte数のASCII Stringへする。入力: peer/phase/sequence、出力: payload。 */
+  /** Encode an echo identifier as a fixed-byte ASCII String. Inputs: peer/phase/sequence; returns a payload. */
   function payload(peer: number, measured: boolean, sequence: number): string {
     const prefix = `${runId}:${measured ? 'm' : 'w'}:${peer}:${sequence}:`;
     check(prefix.length <= input.payloadBytes, 'payload_too_small');
     return prefix + 'x'.repeat(input.payloadBytes - prefix.length);
   }
 
-  /** 1 WebRTC peerを確立しsubscribe/advertiseする。入力: peer index、出力: connection。 */
+  /** Establish one WebRTC peer and subscribe/advertise. Input: peer index; returns a connection. */
   async function connect(peer: number): Promise<Connection> {
     const started = performance.now();
     const pc = new RTCPeerConnection();
@@ -75,7 +75,7 @@ export async function performanceScenario(input: ScenarioInput): Promise<Scenari
     const realtime = pc.createDataChannel('ros.realtime.v1', { ordered: false, maxRetransmits: 0 });
     const connection: Connection = { pc, control, reliable, messages: [], pending: new Map(), epoch: '', stream: '', handle: '', request: 0, sequence: 0 };
     connections.push(connection);
-    // setup応答とload時のack/echoを分離し、受信queueを有界に保つ。
+    // Separate setup responses from load-time ack/echo traffic to keep the receive queue bounded.
     for (const [channel, label] of [[control, 'control'], [reliable, 'reliable']] as const) {
       channel.onmessage = event => {
         try {
@@ -87,7 +87,7 @@ export async function performanceScenario(input: ScenarioInput): Promise<Scenari
             const identifier = wire.data.data.split(':', 5).slice(0, 4).join(':');
             const pending = connection.pending.get(identifier);
             if (pending !== undefined) {
-              // 識別prefixだけでなく送信payload全体を照合し、後半破損を成功扱いしない。
+              // Compare the complete transmitted payload, not just the identifying prefix; corrupted tails must not count as success.
               if (wire.data.data !== pending.payload) { unexpected++; return; }
               connection.pending.delete(identifier);
               if (pending.measured) roundTrips.push(performance.now() - pending.startedMs);
@@ -107,7 +107,7 @@ export async function performanceScenario(input: ScenarioInput): Promise<Scenari
     await pc.setLocalDescription(await pc.createOffer());
     await until(() => pc.iceGatheringState === 'complete', 'ice_gathering');
     check(pc.localDescription, 'missing_offer');
-    // URL、credential、SDPはpage内だけに置き、戻り値へ含めない。
+    // Keep URLs, credentials, and SDP only inside the page, excluding them from return values.
     const response = await fetch(`${input.url.replace(/\/$/, '')}/offer`, { method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${input.credential}` },
       body: JSON.stringify({ type: 'offer', sdp: pc.localDescription.sdp }),
@@ -132,7 +132,7 @@ export async function performanceScenario(input: ScenarioInput): Promise<Scenari
     return connection;
   }
 
-  /** 各peerへ設定rateでpublishする。入力: duration/measured、出力: 送信完了。 */
+  /** Publish to each peer at the configured rate. Inputs: duration/measured; output: send completion. */
   async function load(durationMs: number, measured: boolean): Promise<void> {
     const ends = performance.now() + durationMs;
     const interval = 1000 / input.rateHz + 0.5;
@@ -154,7 +154,7 @@ export async function performanceScenario(input: ScenarioInput): Promise<Scenari
     }
   }
 
-  /** 数列をnearest-rank percentileへ集計する。入力: ms配列、出力: p50/p95/p99/max。 */
+  /** Aggregate numbers using nearest-rank percentiles. Input: millisecond array; returns p50/p95/p99/max. */
   function distribution(values: readonly number[]): Distribution {
     if (values.length === 0) return { count: 0, p50: 0, p95: 0, p99: 0, max: 0 };
     const sorted = [...values].sort((left, right) => left - right);

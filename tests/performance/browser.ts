@@ -2,7 +2,7 @@ import { chromium, type BrowserServer } from 'playwright-core';
 import { performanceScenario } from './scenario.js';
 import type { BrowserRunReport, ScenarioInput } from './types.js';
 
-/** promiseを有限時間に制限する。入力: action/timeout、出力: action結果。 */
+/** Bound a Promise in time. Inputs: action/timeout; returns the action result. */
 async function bounded<T>(action: Promise<T>, timeoutMs: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   const timeout = new Promise<never>((_, reject) => {
@@ -15,13 +15,13 @@ async function bounded<T>(action: Promise<T>, timeoutMs: number): Promise<T> {
   }
 }
 
-/** 所有Chromium processをclose/kill/終了確認する。入力: server、出力なし。 */
+/** Close or kill the owned Chromium process and verify termination. Input: server; no output. */
 async function closeBrowser(server: BrowserServer): Promise<void> {
   const child = server.process();
   try {
     await bounded(server.close(), 3000);
   } catch {
-    try { await bounded(server.kill(), 3000); } catch { /* 下の所有PID確認へ進む。 */ }
+    try { await bounded(server.kill(), 3000); } catch { /* Continue with the owned-PID check below. */ }
   }
   if (child.exitCode === null && child.signalCode === null && child.pid !== undefined) {
     try { process.kill(-child.pid, 'SIGKILL'); }
@@ -35,7 +35,7 @@ async function closeBrowser(server: BrowserServer): Promise<void> {
   }
 }
 
-/** 実Chromiumで性能scenarioを1回実行する。入力: URL/credential/workload、出力: 匿名report。 */
+/** Run one performance scenario in real Chromium. Inputs: URL/credential/workload; returns an anonymized report. */
 export async function runBrowserPerformance(input: ScenarioInput): Promise<BrowserRunReport> {
   const expires = performance.now() + input.timeoutMs;
   const remaining = (): number => {
@@ -51,7 +51,7 @@ export async function runBrowserPerformance(input: ScenarioInput): Promise<Brows
     const browser = await bounded(chromium.connect(server.wsEndpoint(), { timeout: remaining() }), remaining());
     const context = await bounded(browser.newContext({ ignoreHTTPSErrors: true }), remaining());
     const page = await bounded(context.newPage(), remaining());
-    // navigationで自己署名TLS originを確立し、接続情報は戻り値やlogへ含めない。
+    // Establish the self-signed TLS origin through navigation; exclude connection details from return values and logs.
     const response = await bounded(page.goto(`${input.url.replace(/\/$/, '')}/health`,
       { waitUntil: 'domcontentloaded', timeout: Math.min(15000, remaining()) }), remaining());
     if (response?.status() !== 200) throw new Error('browser_health_failed');

@@ -1,35 +1,35 @@
 # Security Policy
 
-## 現状
+## Current status
 
-このプロジェクトは接続PoC段階です。TLS、単一Bearerと明示allowlist、commandの所有権・lease・sequence検証を実装しています。サポート対象のリリースはまだなく、多ユーザーidentity、token発行・期限管理、公開運用の安全性評価は未完了です。
+This project is a connection proof of concept. It implements TLS, a single Bearer credential with explicit allowlists, and command ownership, lease, and sequence validation. There are no supported releases yet. Multi-user identity, token issuance and expiration management, and a safety assessment for public deployment remain incomplete.
 
-目標はROS 2 graphへ到達するWebRTC Topicブリッジです。以下を実装・運用の要件とし、具体的な保証範囲は [`docs/design.md`](docs/design.md) に従います。
+The goal is a WebRTC Topic bridge that can reach a ROS 2 graph. The following are implementation and operational requirements; the specific guarantees are defined in [`docs/design.md`](docs/design.md).
 
-## 接続・操作の境界
+## Connection and operation boundaries
 
-- signalingはHTTPS/WSSで保護し、認証したidentity、robot、sessionとSDPを対応付ける。
-- Topic、型、方向をallowlistで限定する。閲覧権限からpublish権限を推定しない。catalogも権限で絞る。
-- token期限切れ、session撤回、ACL変更を既存DataChannelにも反映する。
-- 同じROS出力へのcommand writerを制限し、受信時とROS publish直前に所有権・epoch・sequence・leaseを検証する。
-- DTLS暗号化だけで操作権限や指令の新鮮さが保証されるとは扱わない。
+- Protect signaling with HTTPS/WSS and associate SDP with the authenticated identity, robot, and session.
+- Allowlist Topics, types, and directions. Do not infer publish permission from read permission. Filter the catalog by permissions too.
+- Apply token expiration, session revocation, and ACL changes to existing DataChannels.
+- Limit command writers targeting the same ROS output. Validate ownership, epoch, sequence, and lease both on receipt and immediately before ROS publication.
+- Do not treat DTLS encryption alone as a guarantee of authorization or command freshness.
 
-## 入力・資源・記録
+## Input, resources, and records
 
-- message、schema、SDP、ICE候補、control requestにサイズ・件数・rate・timeoutの制限を設ける。
-- queue、DataChannel送信buffer、cache、peer数を有限にし、遅いpeerが他peerやROS処理を止めないようにする。
-- payload、認証情報、TURN credential、SDP/ICE内の接続情報を既定logに出さない。監査記録は認可結果・拒否理由等に限定し、保存期間とアクセス権を定める。
-- secretはリポジトリや例に埋め込まず、外部設定から供給する。診断データを共有する前に機密情報を除く。
-- `ros2 launch`でもBearer credentialやTLS鍵・証明書をlaunch argumentやcommand lineへ載せず、実行環境から`BRIDGE_CREDENTIAL`、`BRIDGE_TLS_KEY`、`BRIDGE_TLS_CERT`を継承する。
+- Bound the size, count, rate, and processing time of messages, schemas, SDP, ICE candidates, and control requests.
+- Keep queues, DataChannel send buffers, caches, and peer counts finite. A slow peer must not block other peers or ROS processing.
+- Do not log payloads, authentication data, TURN credentials, or connection information from SDP/ICE by default. Limit audit records to authorization outcomes, rejection classifications, and similar metadata; define retention and access controls.
+- Supply secrets through external configuration, never through repository files or examples. Remove confidential information before sharing diagnostics.
+- With `ros2 launch`, inherit `BRIDGE_CREDENTIAL`, `BRIDGE_TLS_KEY`, and `BRIDGE_TLS_CERT` from the execution environment. Do not put Bearer credentials or TLS keys/certificates in launch arguments or command lines.
 
-## ロボット側の責務
+## Robot-side responsibilities
 
-Gatewayの期限検証はROS publish直前までです。DDSやcontroller queueでの遅着を拒否する必要がある場合は、controllerで検証可能な期限・世代情報とcommand gateを使用します。入力途絶watchdogをロボット側に設け、切断、browser suspend、Gateway停止を試験します。
+The Gateway validates deadlines up to the instant before ROS publication. If late delivery through DDS or controller queues must be rejected, use a command gate and deadline/generation data that the controller can validate. Provide a robot-side input watchdog and test disconnection, browser suspension, and Gateway shutdown.
 
-再接続時に古いcommandを再送せず、汎用ブリッジが停止用messageを推測しない方針です。ROS publish成功のackは実機の処理完了を意味しません。
+Do not replay old commands on reconnection. A generic bridge must not guess a stop message. A successful ROS publication acknowledgement does not mean that the physical robot has completed an operation.
 
-## 脆弱性の報告
+## Reporting vulnerabilities
 
-公開issueやPRへ未修正の脆弱性の詳細、再現用secret、接続情報を書かないでください。管理者へ非公開で連絡してください。
+Do not include details of unpatched vulnerabilities, reproduction secrets, or connection information in public issues or pull requests. Contact the maintainers privately.
 
-専用の報告先、GitHub Private Vulnerability Reportingの有効化状況、対応期限は現時点で未整備です。最初の公開リリースまでに報告先とサポート対象versionを本書へ明記します。
+A dedicated reporting address, the status of GitHub Private Vulnerability Reporting, and response deadlines have not yet been established. This document will list reporting contacts and supported versions before the first public release.

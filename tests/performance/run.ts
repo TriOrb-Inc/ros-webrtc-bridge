@@ -9,7 +9,7 @@ import { absent, command, containerState, healthy } from './process.js';
 import { ResourceSampler } from './resources.js';
 import type { BrowserRunReport, ContainerState, ResourceReport } from './types.js';
 
-/** stage名を固定allowlistへ正規化する。入力: 内部stage、出力: 匿名分類。 */
+/** Normalize stage names against a fixed allowlist. Input: internal stage; returns an anonymized classification. */
 function failureStage(stage: string): string {
   const allowed = new Set(['configuration', 'temporary_files', 'network', 'peer_start', 'gateway_start', 'readiness',
     'installed_package', 'environment', 'resources', 'browser', 'gateway_state']);
@@ -17,18 +17,18 @@ function failureStage(stage: string): string {
 }
 
 
-/** containerを有限時間で削除し、残存を確認する。入力: 所有名配列、出力: 全解放ならtrue。 */
+/** Delete containers within a finite deadline and check for leftovers. Input: owned names; returns true if all are released. */
 async function removeContainers(names: readonly string[]): Promise<boolean> {
   let clean = true;
   for (const name of [...names].reverse()) {
     try { await command('docker', ['rm', '-f', name], 10000); }
-    catch { /* 既に終了・削除済みかを下で区別する。 */ }
+    catch { /* Determine below whether it has already stopped or been removed. */ }
     if (!(await absent(name, 'container'))) clean = false;
   }
   return clean;
 }
 
-/** 1回のperformance/soak profileを専用Docker networkで実行し、匿名JSONを保存する。 */
+/** Run one performance/soak profile on a dedicated Docker network and save anonymized JSON. */
 async function main(): Promise<void> {
   let stage = 'configuration';
   const config = await loadPerformanceConfig();
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   let failure: string | undefined, cleanup = false;
   let rosDistro = 'unknown', containerNode = 'unknown', transport = 'unknown';
   const expires = performance.now() + config.timing.overallTimeoutSeconds * 1000;
-  /** 共通単調deadlineの残りを返す。入力なし、出力: ms。 */
+  /** Return remaining time from the shared monotonic deadline. No input; returns milliseconds. */
   const remaining = (): number => {
     const milliseconds = expires - performance.now();
     if (milliseconds <= 0) throw new Error('overall_timeout');
@@ -118,7 +118,7 @@ async function main(): Promise<void> {
   } catch {
     failure = failureStage(stage);
   } finally {
-    // resource停止、状態保存、全所有object削除を個別に続け、primary failureを隠さない。
+    // Independently continue stopping sampling, saving state, and deleting all owned objects without hiding the primary failure.
     if (samplerStarted && !samplerStopped && sampler !== undefined) {
       try { resources = await sampler.stop(); } catch { failure ??= 'resources'; }
     }
@@ -127,7 +127,7 @@ async function main(): Promise<void> {
     const containersClean = await removeContainers(owned);
     let networkClean = !networkCreated;
     if (networkCreated) {
-      try { await command('docker', ['network', 'rm', network], 10000); } catch { /* 残存確認へ進む。 */ }
+      try { await command('docker', ['network', 'rm', network], 10000); } catch { /* Continue to the remaining-object check. */ }
       networkClean = await absent(network, 'network');
     }
     let temporaryClean = true;
@@ -139,7 +139,7 @@ async function main(): Promise<void> {
   }
   const evaluated = evaluateGates(config, browser, resources, gateway, peer, cleanup);
   const passed = failure === undefined && Object.values(evaluated).every(gate => gate.pass);
-  // 保存値は固定環境属性と集計値だけに限定し、URL/SDP/credential/payload/container名/image名を含めない。
+  // Store only fixed environment attributes and aggregates; exclude URLs, SDP, credentials, payloads, container names, and image names.
   const result = { schemaVersion: 1, status: passed ? 'PASS' : 'FAIL', failure: failure ?? null,
     gatePolicy: 'shared-runner-regression-and-invariant-not-absolute-performance-guarantee',
     budgetPolicy: { invariants: 'safety', provisional: 'initial-loose-poc-not-release-budget' },
@@ -155,7 +155,7 @@ async function main(): Promise<void> {
 }
 
 await main().catch(async () => {
-  // 設定読込前の失敗も生値を表示せず、固定messageだけで終了する。
+  // For failures before configuration loading, exit with a fixed message without printing raw values.
   console.error('performance harness failed before result initialization');
   process.exitCode = 1;
 });

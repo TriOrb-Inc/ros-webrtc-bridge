@@ -6,7 +6,7 @@ import { signalingOpenApi } from './openapi.js';
 
 const require = createRequire(import.meta.url);
 const specification = signalingOpenApi();
-// 配布済み依存から固定名だけを読み、sourceとcolcon installの両方で同じassetを配信する。
+// Load only fixed asset names from the distributed dependency; source and colcon installs serve the same assets.
 const resources = new Map<string, { contentType: string; body: string | Buffer }>([
   ['/openapi.json', { contentType: 'application/json', body: JSON.stringify(specification) }],
   ['/openapi.yaml', { contentType: 'application/yaml', body: stringify(specification) }],
@@ -21,12 +21,12 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta n
 resources.set('/docs', { contentType: 'text/html', body: html });
 resources.set('/docs/', { contentType: 'text/html', body: html });
 
-/** 公開HTTP文書だけを返す。入力request/response、出力処理済みboolean。例: GET /docs → true、POST → false。 */
+/** Serve public HTTP documentation only. Inputs: request/response; returns whether handled. GET /docs returns true; POST returns false. */
 export function serveSignalingDocs(request: IncomingMessage, response: ServerResponse): boolean {
   if (request.method !== 'GET') return false;
   const resource = resources.get(request.url ?? '');
   if (!resource) return false;
-  // credential入力はbrowser memoryだけに保持し、外部validatorやCDNへ通信しない。
+  // Keep entered credentials only in browser memory; never contact external validators or CDNs.
   response.writeHead(200, { 'Content-Type': resource.contentType, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
   response.end(resource.body);
   return true;

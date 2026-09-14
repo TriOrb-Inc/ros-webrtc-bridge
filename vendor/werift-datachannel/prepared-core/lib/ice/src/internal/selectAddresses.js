@@ -3,9 +3,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.selectAddressesFromInterfaces = selectAddressesFromInterfaces;
 const common_1 = require("../imports/common");
 /**
- * Interface 辞書から host 候補アドレスを選別する（package-private）。
- * 公開 barrel (`src/index.ts`) からは export しない。
- * テストは本 helper への依存注入で行う。
+ * Select host candidate addresses from the interface dictionary (package-private).
+ * Not exported from the public barrel (`src/index.ts`).
+ * Tests inject dependencies into this helper.
  */
 function selectAddressesFromInterfaces(interfaces, family, options = {}, isLinkLocal) {
     // https://chromium.googlesource.com/external/webrtc/+/master/rtc_base/network.cc#236

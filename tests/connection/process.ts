@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-/** 任意の環境変数を有限の正整数millisecondsへ変換する。入力文字列/既定値/範囲、出力timeout。 */
+/** Convert an optional environment value to finite positive milliseconds. Inputs: string/default/range; returns a timeout. */
 export function parseTimeoutMs(raw: string | undefined, fallback: number, minimum: number, maximum: number): number {
   if (raw === undefined) return fallback;
   if (!/^[1-9][0-9]*$/.test(raw)) throw new Error('timeout must be a positive integer in milliseconds');
@@ -13,7 +13,7 @@ export function parseTimeoutMs(raw: string | undefined, fallback: number, minimu
   return value;
 }
 
-/** 外部工程を有限時間で実行する。入力名/command/引数/options、出力stdout。引数や環境値はlogしない。 */
+/** Run an external stage with a finite deadline. Inputs: name/command/arguments/options; returns stdout. Never log arguments or environment values. */
 export async function command(name: string, executable: string, args: string[], options: {
   directory: string; timeoutMs?: number; env?: NodeJS.ProcessEnv;
 }): Promise<string> {
@@ -23,7 +23,7 @@ export async function command(name: string, executable: string, args: string[], 
     return await new Promise<string>((resolve, reject) => {
       execFile(executable, args, { env: { ...process.env, ...options.env }, timeout: options.timeoutMs ?? 30000,
         maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
-        // build/正常診断だけを保存する。credentialはargsやcommand出力へ含めない設計。
+        // Save only build output and normal diagnostics. Credentials are excluded from arguments and command output by design.
         writeFile(join(options.directory, `${name}.log`), stdout + stderr).then(() => {
           if (error) reject(new Error(`${name} failed; see local log`)); else resolve(stdout.trim());
         }, reject);

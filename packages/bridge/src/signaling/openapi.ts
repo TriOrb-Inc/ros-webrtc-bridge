@@ -1,51 +1,51 @@
-/** HTTP signalingの単一仕様を返す。入力なし、出力OpenAPI文書。Topic通信はDataChannel契約を参照する。 */
+/** Return the single HTTP signaling specification. No input; returns an OpenAPI document. Topic traffic follows the DataChannel contract. */
 export function signalingOpenApi() {
-  // 認証値や配備先hostを含めず、閲覧中のHTTPS originを実行先とする。
+  // Use the current HTTPS origin without embedding credentials or deployment hosts.
   return {
     openapi: '3.0.3',
     info: { title: 'ROS WebRTC Bridge Signaling API', version: '1.0.0', description:
       'HTTPS signaling only. ROS Topic publish/subscribe uses the versioned WebRTC DataChannel protocol, not REST. Create the three required DataChannels and complete ICE gathering before submitting an offer.' },
-    // 相対URLにより、Swaggerを開いたHTTPS originへ送信する。
+    // Relative URLs send requests to the HTTPS origin serving Swagger.
     servers: [{ url: '/' }],
     paths: {
-      // readyはHTTP受付の準備だけを示し、ROS接続の健全性は保証しない。
+      // Ready indicates HTTP request readiness only; it does not guarantee ROS connection health.
       '/health': { get: { operationId: 'getHealth', summary: 'Check signaling readiness', security: [], responses: {
         '200': { description: 'Signaling HTTP handler is ready; this does not certify ROS peer availability.', content: { 'application/json': { schema: {
           type: 'object', additionalProperties: false, required: ['status'], properties: { status: { type: 'string', enum: ['ready'] } }
         } } } }
-      // 公開healthにはBearerを要求せず、offerの認証と分離する。
+      // Public health checks require no Bearer credential and are separate from offer authentication.
       } } },
       '/offer': { post: { operationId: 'exchangeOffer', summary: 'Exchange a WebRTC SDP offer for an answer', security: [{ bearerAuth: [] }],
         description: 'Requires Content-Type exactly application/json. Body bytes, read timeout and concurrent negotiations are bounded by deployment settings. Invalid SDP or negotiation failure is rejected. An SDP answer alone does not establish the DataChannel ready handshake.',
-        // handlerと同じくtype/sdpのみを受理し、未知fieldを禁止する。
+        // Accept only type and sdp, matching the handler; reject unknown fields.
         requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', additionalProperties: false,
           required: ['type', 'sdp'], properties: { type: { type: 'string', enum: ['offer'] }, sdp: { type: 'string' } }
         } } } },
         responses: {
-          // answerはラップせず返す。DataChannelのreadyは別の交換で確認する。
+          // Return the answer without wrapping. DataChannel readiness is checked in a separate exchange.
           '200': { description: 'SDP answer; complete the WebRTC and DataChannel handshake on the client.', content: { 'application/json': { schema: {
             type: 'object', additionalProperties: false, required: ['type', 'sdp'], properties: { type: { type: 'string', enum: ['answer'] }, sdp: { type: 'string' } }
           } } } },
-          // 交渉失敗と認証失敗を固定分類で示し、内部例外は公開しない。
+          // Use fixed classifications for negotiation and authentication failures; do not expose internal exceptions.
           '400': errorResponse('Malformed JSON, invalid offer fields or rejected negotiation.', 'offer_rejected'),
           '401': errorResponse('Missing or incorrect Bearer credential.', 'unauthorized'),
           '408': errorResponse('Request body read deadline exceeded.', 'request_timeout'),
-          // 資源制限の拒否を区別し、利用者が要求サイズや頻度を調整できるようにする。
+          // Distinguish resource-limit rejections so clients can adjust request size or frequency.
           '413': errorResponse('Request body exceeds the configured byte limit.', 'body_too_large'),
           '415': errorResponse('Content-Type is not exactly application/json.', 'content_type'),
           '503': errorResponse('Concurrent pending negotiation limit reached.', 'busy')
         }
-      // HTTP応答の定義を閉じ、共通の認証方式はcomponentsへまとめる。
+      // Define closed HTTP response schemas and collect the shared authentication scheme in components.
       } }
     },
-    // schemeのみを公開し、実際のcredentialは仕様へ埋め込まない。
+    // Expose only the scheme; never embed actual credentials in the specification.
     components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', description: 'Runtime-issued credential; never commit or persist it.' } } }
   };
 }
 
-/** 固定分類のerror応答schemaを作る。入力説明/分類、出力Response Object。例: unauthorized → 401用schema。 */
+/** Create a fixed-classification error response schema. Inputs: description/classification; returns a Response Object, e.g. unauthorized for 401. */
 function errorResponse(description: string, error: string) {
-  // errorは固定値だけを列挙し、任意の詳細fieldを応答契約に含めない。
+  // Enumerate only fixed error values; arbitrary detail fields are outside the response contract.
   return { description, content: { 'application/json': { schema: {
     type: 'object', additionalProperties: false, required: ['error'], properties: { error: { type: 'string', enum: [error] } }
   } } } };

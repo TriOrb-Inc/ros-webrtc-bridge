@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { bytes, fixture } from './fixtures.js';
 
-test('FLOW-01/LIFE-01: reliable飽和はstream停止しlistenerを解放', () => {
+test('FLOW-01/LIFE-01: reliable saturation stops the stream and releases listeners', () => {
   const f = fixture();
   f.control({ op: 'hello' });
   f.control({ op: 'subscribe', id: 's1', topic: '/out' });
@@ -17,7 +17,7 @@ test('FLOW-01/LIFE-01: reliable飽和はstream停止しlistenerを解放', () =>
   f.router.close();
 });
 
-test('SIZE-01/TYPE-01: 不正/過大ROS sampleは当該streamを停止', () => {
+test('SIZE-01/TYPE-01: invalid or oversized ROS samples stop the affected stream', () => {
   for (const data of [{ data: 42 }, { data: 'x'.repeat(2000) }]) {
     const f = fixture();
     f.control({ op: 'hello' });
@@ -30,7 +30,7 @@ test('SIZE-01/TYPE-01: 不正/過大ROS sampleは当該streamを停止', () => {
   }
 });
 
-test('AUTH-02: 配信policyの撤回/close後にROS sampleを送らない', () => {
+test('AUTH-02: do not send ROS samples after delivery policy revocation or close', () => {
   for (const close of [false, true]) {
     const f = fixture();
     f.control({ op: 'hello' });
@@ -45,7 +45,7 @@ test('AUTH-02: 配信policyの撤回/close後にROS sampleを送らない', () =
   }
 });
 
-test('LIFE-01: subscribe失敗後の再試行と全listener cleanup失敗を区別', () => {
+test('LIFE-01: distinguish subscription retry after failure from cleanup failure of all listeners', () => {
   const f = fixture();
   f.control({ op: 'hello' });
   f.state.subscribeThrows = true;
@@ -66,7 +66,7 @@ test('LIFE-01: subscribe失敗後の再試行と全listener cleanup失敗を区�
   assert.equal(f.output.length, responses);
 });
 
-test('FLOW-02: control溢れと送信例外でpeerを閉じる', () => {
+test('FLOW-02: close the peer on control overflow and send exceptions', () => {
   for (const throws of [false, true]) {
     const f = fixture(options => ({ ...options, limits: { ...options.limits, maxRequests: 1 } }));
     assert.equal(f.router.isClosed, false);
@@ -80,7 +80,7 @@ test('FLOW-02: control溢れと送信例外でpeerを閉じる', () => {
   }
 });
 
-test('AUTH-02: welcome生成中のcloseも応答を送信しない', () => {
+test('AUTH-02: do not send a response when closed during welcome generation', () => {
   const f = fixture();
   f.state.authorizeHook = () => f.router.close();
   f.control({ op: 'hello' });
@@ -88,7 +88,7 @@ test('AUTH-02: welcome生成中のcloseも応答を送信しない', () => {
   assert.equal(f.guard.stats().sessions, 0);
 });
 
-test('AUTH-02: backpressure中のtelemetryはflush前のACL撤回で破棄', () => {
+test('AUTH-02: discard backpressured telemetry when the ACL is revoked before flush', () => {
   for (const close of [false, true]) {
     const f = fixture();
     f.control({ op: 'hello' });
@@ -106,7 +106,7 @@ test('AUTH-02: backpressure中のtelemetryはflush前のACL撤回で破棄', () 
   }
 });
 
-test('LIFE-01: cleanup後のonClosedは解放失敗時も1回だけ通知', () => {
+test('LIFE-01: notify onClosed exactly once after cleanup even when release fails', () => {
   for (const cleanupThrows of [false, true]) {
     let notifications = 0;
     const f = fixture(options => ({ ...options, onClosed: () => {

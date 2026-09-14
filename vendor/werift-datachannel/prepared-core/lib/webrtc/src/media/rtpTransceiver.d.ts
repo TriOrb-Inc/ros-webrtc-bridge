@@ -31,7 +31,7 @@ export declare class RTCRtpTransceiver {
     /**RFC 8829 4.2.4.  direction the transceiver was initialized with */
     _direction: MediaDirection);
     get dtlsTransport(): RTCDtlsTransport;
-    /**RFC 8829 4.2.4. setDirectionに渡された最後の値を示します */
+    /**RFC 8829 section 4.2.4: the last value passed to setDirection. */
     get direction(): MediaDirection;
     set direction(direction: MediaDirection);
     setDirection(direction: MediaDirection): void;

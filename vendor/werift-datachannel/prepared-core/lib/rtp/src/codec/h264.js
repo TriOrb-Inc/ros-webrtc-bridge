@@ -109,8 +109,8 @@ class H264RtpPayload {
         h264.r = (0, src_1.getBit)(buf[offset], 2);
         h264.nalUnitPayloadType = (0, src_1.getBit)(buf[offset], 3, 5);
         offset++;
-        // デフォルトでは packetization-mode=0
-        // packetization-mode=0だとSingle NAL Unit Packetしか来ない
+        // The default is packetization-mode=0.
+        // With packetization-mode=0, only Single NAL Unit Packets are received.
         // https://datatracker.ietf.org/doc/html/rfc6184#section-6.2
         // Single NAL Unit Packet
         if (0 < h264.nalUnitType && h264.nalUnitType < exports.NalUnitType.stap_a) {

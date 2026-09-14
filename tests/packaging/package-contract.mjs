@@ -7,28 +7,28 @@ const PACKAGE_NAME = 'ros_webrtc_bridge';
 const root = resolve(process.argv[2] ?? '.');
 
 /**
- * UTF-8 text fileを読みます。
- * @param {string} relative リポジトリrootからの相対pathです。例: package.xml。
- * @returns {Promise<string>} file内容です。例: XML文字列。
+ * Read a UTF-8 text file.
+ * @param {string} relative Path relative to the repository root, e.g. package.xml.
+ * @returns {Promise<string>} File contents, e.g. an XML string.
  */
 async function text(relative) {
   return readFile(resolve(root, relative), 'utf8');
 }
 
 /**
- * XMLの単純な依存tagを抽出します。
- * @param {string} xml package.xml全体です。例: `<exec_depend>nodejs</exec_depend>`。
- * @param {string} tag 抽出対象tagです。例: exec_depend。
- * @returns {string[]} trim済みの依存名です。例: [`nodejs`]。
+ * Extract simple XML dependency tags.
+ * @param {string} xml Complete package.xml contents, e.g. `<exec_depend>nodejs</exec_depend>`.
+ * @param {string} tag Tag to extract, e.g. exec_depend.
+ * @returns {string[]} Trimmed dependency names, e.g. [`nodejs`].
  */
 function tags(xml, tag) {
   return [...xml.matchAll(new RegExp(`<${tag}>([^<]+)</${tag}>`, 'g'))].map(match => match[1].trim());
 }
 
 /**
- * 同梱設定が参照するROS interface package名を列挙します。
- * @param {string[]} sources bridge YAMLの配列です。
- * @returns {string[]} 重複を除いたpackage名です。例: [`std_msgs`]。
+ * List ROS interface package names referenced by bundled configuration.
+ * @param {string[]} sources Array of bridge YAML documents.
+ * @returns {string[]} Deduplicated package names, e.g. [`std_msgs`].
  */
 function interfacePackages(sources) {
   const names = new Set();
@@ -41,9 +41,9 @@ function interfacePackages(sources) {
 }
 
 /**
- * packageへ秘密鍵やcredential値を同梱していないことを確認します。
- * @param {Array<[string, string]>} files pathと内容の組です。
- * @returns {void} 違反時はassertion errorを投げます。
+ * Check that packages contain no private keys or credential values.
+ * @param {Array<[string, string]>} files Pairs of paths and contents.
+ * @returns {void} Throws an assertion error on violations.
  */
 function assertNoSecrets(files) {
   for (const [path, source] of files) {
@@ -54,7 +54,7 @@ function assertNoSecrets(files) {
   }
 }
 
-// package metadataはcolcon discoveryとament index登録に必要な最小契約を固定します。
+// Fix the minimal package metadata contract needed for colcon discovery and ament index registration.
 const packageXml = await text('package.xml');
 assert.match(packageXml, new RegExp(`<name>${PACKAGE_NAME}</name>`));
 assert.match(packageXml, /<buildtool_depend>ament_cmake<\/buildtool_depend>/);
@@ -64,8 +64,8 @@ for (const dependency of ['nodejs', 'launch', 'launch_ros']) {
   assert.ok(tags(packageXml, 'exec_depend').includes(dependency), `missing exec_depend: ${dependency}`);
 }
 
-// 設定で初めて決まるinterfaceはruntime exec依存にしません。smokeで実際に使うfixtureの
-// interface packageだけをtest_dependへ閉じ、配布例の全型を本体依存へ固定しないようにします。
+// Do not add runtime exec dependencies for interfaces determined only by configuration. Restrict
+// test_depend to interface packages actually used by smoke tests, rather than making every example type a core dependency.
 const yamlFiles = ['examples/bridge.yaml', 'examples/connection.yaml'];
 const yamlSources = await Promise.all(yamlFiles.map(path => text(path)));
 const smokeInterfacePackages = interfacePackages([yamlSources[yamlFiles.indexOf('examples/connection.yaml')]]);
@@ -80,7 +80,7 @@ for (const dependency of smokeInterfacePackages) {
     `${dependency} is used by packaged smoke fixtures and must be a test_depend`);
 }
 
-// ros2 run/launchと配布設定のsource側entrypointを確認し、実install結果はsmoke.shで別途確認します。
+// Check source entrypoints for ros2 run/launch and distributed configuration; smoke.sh separately checks actual installed artifacts.
 const executable = resolve(root, 'scripts/ros_webrtc_bridge');
 const launch = resolve(root, 'launch/bridge.launch.py');
 await access(executable, constants.R_OK | constants.X_OK);

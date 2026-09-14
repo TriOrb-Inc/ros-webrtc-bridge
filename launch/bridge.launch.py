@@ -8,12 +8,12 @@ PACKAGE_NAME = "ros_webrtc_bridge"
 
 
 def generate_launch_description():
-    """インストール済みbridge用のLaunchDescriptionを構築する。
+    """Build the LaunchDescription for the installed bridge.
 
-    引数は取らず、config、host、port、node_nameをlaunch argumentとして宣言する。
-    戻り値はbridge processを含むLaunchDescription。入力例は
+    Takes no arguments; declares config, host, port, and node_name as launch arguments.
+    Returns a LaunchDescription containing the bridge process. Example input:
     ``ros2 launch ros_webrtc_bridge bridge.launch.py host:=0.0.0.0``、
-    出力例は指定した環境設定で起動するbridge processである。
+    The resulting bridge process starts with the specified environment settings.
     """
     package_share = FindPackageShare(PACKAGE_NAME)
     default_config = PathJoinSubstitution([package_share, "examples", "bridge.yaml"])
@@ -28,8 +28,8 @@ def generate_launch_description():
         ]
     )
 
-    # BRIDGE_CREDENTIAL、BRIDGE_TLS_KEY、BRIDGE_TLS_CERT と権限 allowlist は
-    # ros2 launch を呼ぶ環境から継承する。secret や環境固有 path を既定値へ置かない。
+    # BRIDGE_CREDENTIAL, BRIDGE_TLS_KEY, BRIDGE_TLS_CERT, and permission allowlists
+    # are inherited from the ros2 launch environment. Do not use secrets or deployment paths as defaults.
     return LaunchDescription(
         [
             DeclareLaunchArgument("config", default_value=default_config),

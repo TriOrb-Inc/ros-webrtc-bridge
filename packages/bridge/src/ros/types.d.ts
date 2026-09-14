@@ -1,13 +1,13 @@
 import type { Codec } from '../codec/index.js';
 import type { RosQos, TopicBinding } from '../config/types.js';
 
-/** 型検証済みbindingとcodec。schema IDはwire registryが管理する。 */
+/** Type-validated binding and codec. The wire registry manages schema IDs. */
 export interface RosRegistration {
   readonly binding: TopicBinding;
   readonly codec: Codec;
 }
 
-/** 共有ROS entityを所有するprocess側API。logical listenerだけをsessionへ貸す。 */
+/** Process API owning shared ROS entities. Sessions borrow only logical listeners. */
 export interface RosAdapter {
   start(): void;
   subscribe(publicName: string, callback: (native: unknown) => void): () => void;
@@ -15,7 +15,7 @@ export interface RosAdapter {
   close(): void;
 }
 
-/** 外部native addonを注入する境界。factory完了時にcontext/nodeを初期化済みとする。 */
+/** Injection boundary for the external native addon. The factory initializes the context and node before returning. */
 export interface RosBackend {
   createPublisher(type: string, topic: string, qos: RosQos): { publish(native: unknown): void };
   createSubscription(type: string, topic: string, qos: RosQos, callback: (native: unknown) => void): void;
@@ -23,7 +23,7 @@ export interface RosBackend {
   close(): void;
 }
 
-/** rclnodejs MessageIntrospectorの型情報。payloadやwire schemaと混同しない。 */
+/** Type metadata from rclnodejs MessageIntrospector; distinct from payloads and wire schemas. */
 export interface RosDefinition {
   fields: Array<{ name: string; type: {
     type: string; pkgName: string | null; isPrimitiveType: boolean;
@@ -32,7 +32,7 @@ export interface RosDefinition {
   } }>;
 }
 
-/** 実rclnodejsとunit facadeが共有する必要最小限のAPI。 */
+/** Minimal API shared by real rclnodejs and the unit-test facade. */
 export interface RclModule {
   Context: new () => { shutdown(): void };
   init(context: object, args: string[]): Promise<void>;
@@ -41,7 +41,7 @@ export interface RclModule {
   MessageIntrospector: new (type: string) => { schema: RosDefinition };
 }
 
-/** DDS実体の操作は同期publish、非同期spinの開始、context単位終了に限定する。 */
+/** DDS operations are limited to synchronous publishing, starting asynchronous spinning, and context-level shutdown. */
 export interface RclNode {
   createPublisher(type: string, topic: string, options: object): { readonly topic: string; publish(native: unknown): void };
   createSubscription(type: string, topic: string, options: object, callback: (native: unknown) => void): { readonly topic: string };

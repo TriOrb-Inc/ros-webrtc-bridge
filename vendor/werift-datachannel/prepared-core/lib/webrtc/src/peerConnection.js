@@ -1047,7 +1047,7 @@ class RTCPeerConnection extends helper_1.EventTarget {
         this.transceiverManager.close();
         await this.secureManager.close();
         await this.sctpManager.close();
-        // 公開 Event を完了させ、購読者・クロージャが PeerConnection を保持し続けないようにする
+        // Complete public events so subscribers and closures no longer retain the PeerConnection.
         this.completePeerEvents();
         log("peerConnection closed");
     }

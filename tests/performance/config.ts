@@ -5,7 +5,7 @@ import type { InvariantBudget, PerformanceConfig, ProvisionalBudget, TimingConfi
 
 type MapValue = Record<string, unknown>;
 
-/** object境界と未知keyを検証する。入力例: ({a:1},['a'])、出力: map。 */
+/** Validate the object boundary and unknown keys. Example: ({a:1},['a']) returns a map. */
 function map(value: unknown, keys: readonly string[], name: string): MapValue {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`invalid_${name}`);
   const result = value as MapValue;
@@ -13,7 +13,7 @@ function map(value: unknown, keys: readonly string[], name: string): MapValue {
   return result;
 }
 
-/** 正の有限数を範囲検証する。入力例: (10,1,100,false)、出力: 10。 */
+/** Range-check a finite positive number. Example: (10,1,100,false) returns 10. */
 function number(value: unknown, name: string, minimum: number, maximum: number, integer: boolean): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < minimum || value > maximum || (integer && !Number.isSafeInteger(value))) {
     throw new Error(`invalid_${name}`);
@@ -21,13 +21,13 @@ function number(value: unknown, name: string, minimum: number, maximum: number, 
   return value;
 }
 
-/** booleanだけを受理する。入力例: (true,'gate')、出力: true。 */
+/** Accept booleans only. Example: (true,'gate') returns true. */
 function boolean(value: unknown, name: string): boolean {
   if (typeof value !== 'boolean') throw new Error(`invalid_${name}`);
   return value;
 }
 
-/** profileのworkloadを検証する。入力: 未検証map、出力: 有界設定。 */
+/** Validate profile workload. Input: unvalidated map; returns bounded configuration. */
 function workload(value: unknown): WorkloadConfig {
   const input = map(value, ['peers', 'rateHz', 'payloadBytes', 'warmupSeconds', 'durationSeconds', 'drainTimeoutSeconds'], 'workload');
   return Object.freeze({
@@ -40,7 +40,7 @@ function workload(value: unknown): WorkloadConfig {
   });
 }
 
-/** timeoutとsampling間隔を検証する。入力: 未検証map、出力: timing設定。 */
+/** Validate timeouts and sampling intervals. Input: unvalidated map; returns timing configuration. */
 function timing(value: unknown): TimingConfig {
   const input = map(value, ['overallTimeoutSeconds', 'resourceSampleSeconds', 'heartbeatSeconds'], 'timing');
   return Object.freeze({
@@ -50,7 +50,7 @@ function timing(value: unknown): TimingConfig {
   });
 }
 
-/** crash/loss/資源の安全invariantを検証する。入力: map、出力: invariant budget。 */
+/** Validate crash, loss, and resource safety invariants. Input: map; returns an invariant budget. */
 function invariants(value: unknown): InvariantBudget {
   const input = map(value, ['maxLoss', 'maxRejects', 'maxUnexpected', 'maxRssMiB', 'requireNoCrash', 'requireNoOom', 'requireCleanup'], 'invariants');
   return Object.freeze({
@@ -64,7 +64,7 @@ function invariants(value: unknown): InvariantBudget {
   });
 }
 
-/** 未校正のPoC性能しきい値を検証する。入力: map、出力: provisional budget。 */
+/** Validate uncalibrated PoC performance thresholds. Input: map; returns a provisional budget. */
 function provisional(value: unknown): ProvisionalBudget {
   const input = map(value, ['maxRttP99Ms', 'maxConnectionP99Ms', 'minThroughputRatio', 'maxRssGrowthMiBPerHour'], 'provisional');
   return Object.freeze({
@@ -75,7 +75,7 @@ function provisional(value: unknown): ProvisionalBudget {
   });
 }
 
-/** 数値env overrideを適用する。入力: 現値/env名/範囲、出力: override後。 */
+/** Apply a numeric environment override. Inputs: current value/env name/range; returns the overridden value. */
 function environmentNumber(current: number, env: NodeJS.ProcessEnv, name: string, minimum: number, maximum: number, integer = false): number {
   const raw = env[name];
   if (raw === undefined) return current;
@@ -83,7 +83,7 @@ function environmentNumber(current: number, env: NodeJS.ProcessEnv, name: string
   return number(Number(raw), name.toLowerCase(), minimum, maximum, integer);
 }
 
-/** 0/1のboolean env overrideを適用する。入力: 現値/env名、出力: boolean。 */
+/** Apply a 0/1 boolean environment override. Inputs: current value/env name; returns a boolean. */
 function environmentBoolean(current: boolean, env: NodeJS.ProcessEnv, name: string): boolean {
   const raw = env[name];
   if (raw === undefined) return current;
@@ -91,7 +91,7 @@ function environmentBoolean(current: boolean, env: NodeJS.ProcessEnv, name: stri
   return raw === '1';
 }
 
-/** profileへenv overrideを適用する。入力: profile/env、出力: 凍結PerformanceConfig。 */
+/** Apply environment overrides to a profile. Inputs: profile/env; returns a frozen PerformanceConfig. */
 function overrides(mode: string, base: Omit<PerformanceConfig, 'mode' | 'version'>, env: NodeJS.ProcessEnv): PerformanceConfig {
   const w = base.workload, t = base.timing, i = base.budgets.invariants, p = base.budgets.provisional;
   const configured: PerformanceConfig = {
@@ -132,7 +132,7 @@ function overrides(mode: string, base: Omit<PerformanceConfig, 'mode' | 'version
   return Object.freeze(configured);
 }
 
-/** JSON/YAML設定を読み選択profileを返す。入力: env、出力: 検証済み設定。 */
+/** Read JSON/YAML configuration and return the selected profile. Input: env; returns validated configuration. */
 export async function loadPerformanceConfig(env: NodeJS.ProcessEnv = process.env): Promise<PerformanceConfig> {
   const path = resolve(env.PERFORMANCE_CONFIG ?? 'tests/performance/default.json');
   const source = await readFile(path, 'utf8');

@@ -8,7 +8,7 @@ import test from 'node:test';
 import { launch, listenHttps, loadModule, main, numberOption } from '../../../packages/bridge/src/app/cli.js';
 import { definition, fakePeer, settings, source } from './fixtures.js';
 
-/** ローカル検証用TLSを生成する。引数なし、出力envとkey/cert。秘密鍵はGit除外scratchだけに置く。 */
+/** Generate TLS for local validation. No arguments; returns environment and key/certificate. Store private keys only in Git-ignored scratch space. */
 async function credentials() {
   await mkdir('.runtime', { recursive: true });
   const directory = await mkdtemp(path.resolve('.runtime/app-tls-'));
@@ -21,7 +21,7 @@ async function credentials() {
     BRIDGE_TLS_CERT: certPath }, key: await readFile(keyPath), cert: await readFile(certPath) };
 }
 
-/** HTTPS要求を行う。入力port/path/body、出力status/body。自己署名証明書はこのtestだけで許可する。 */
+/** Make an HTTPS request. Inputs: port/path/body; output: status/body. Allow self-signed certificates only in this test. */
 async function http(port: number, endpoint: string, body?: object) {
   return new Promise<{ status: number; body: string }>((resolve, reject) => {
     const client = request({ hostname: '127.0.0.1', port, path: endpoint, rejectUnauthorized: false,
@@ -33,7 +33,7 @@ async function http(port: number, endpoint: string, body?: object) {
   });
 }
 
-test('CFG-01 numeric環境値とnativeロード前のfailfastを検証する', async () => {
+test('CFG-01 validate numeric environment values and fail before loading native bindings', async () => {
   assert.equal(numberOption(undefined, 3), 3); assert.equal(numberOption('4', 3), 4);
   for (const value of ['0', '-1', 'NaN', '1.5']) assert.throws(() => numberOption(value, 1), /numeric/);
   assert.ok(await loadModule('node:path'));
@@ -46,7 +46,7 @@ test('CFG-01 numeric環境値とnativeロード前のfailfastを検証する', a
   }
 });
 
-test('LIFE-01 HTTPSのlisten・handler・close・bind失敗を実socketで検証する', async () => {
+test('LIFE-01 validate HTTPS listen, handler, close, and bind failures with real sockets', async () => {
   const f = await credentials();
   const server = await listenHttps(f.key, f.cert, '127.0.0.1', 0, async (_request, response) => { response.end('ok'); });
   const port = (server.address as AddressInfo).port;
@@ -55,7 +55,7 @@ test('LIFE-01 HTTPSのlisten・handler・close・bind失敗を実socketで検証
   await server.close(); await assert.rejects(server.close(), /not running/);
 });
 
-test('CFG-01 CLI envからnative facadeと実HTTPSを組み立てる', async () => {
+test('CFG-01 assemble the native facade and real HTTPS from CLI environment variables', async () => {
   const f = await credentials();
   const probe = await listenHttps(f.key, f.cert, '127.0.0.1', 0, async () => {});
   const port = (probe.address as AddressInfo).port; await probe.close();
@@ -65,7 +65,7 @@ test('CFG-01 CLI envからnative facadeと実HTTPSを組み立てる', async () 
   class Node {
     createPublisher(_type: string, topic: string) { return { topic, publish() {} }; }
     createSubscription(_type: string, _topic: string, _options: object, callback: (value: unknown) => void) {
-      // callback不正値を流して匿名error hookも検証する。
+      // Pass invalid callback values to exercise the anonymized error hook too.
       callback({ data: 1 });
       return { topic: _topic };
     }
@@ -82,12 +82,12 @@ test('CFG-01 CLI envからnative facadeと実HTTPSを組み立てる', async () 
   peer!.open(); peer!.channels[0].onMessage.emit('{"v":1,"op":"hello"}');
   assert.equal((peer!.channels[0].sent.at(-1)!.catalog as unknown[]).length, 2);
   await app.close(); assert.deepEqual(events, ['spin', 'shutdown']);
-  // 明示node名/host/ROS argsと空の権限リストも起動契約に含める。
+  // Explicit node names, hosts, ROS arguments, and empty permission lists are part of the startup contract.
   const other = await launch({ ...f.env, BRIDGE_PORT: String(port), BRIDGE_NODE_NAME: 'other', BRIDGE_HOST: '127.0.0.1', BRIDGE_ROS_ARGS: '["--ros-args"]' }, loader);
   await other.close();
 });
 
-test('LIFE-01 常駐heartbeatとsignal監視は正常停止・起動失敗の両方で解除する', async context => {
+test('LIFE-01 remove heartbeat and signal monitoring on normal shutdown and startup failure', async context => {
   context.mock.timers.enable({ apis: ['setInterval'] });
   let closed = 0;
   const baseline = process.listenerCount('SIGTERM');
@@ -96,7 +96,7 @@ test('LIFE-01 常駐heartbeatとsignal監視は正常停止・起動失敗の両
   assert.equal(process.listenerCount('SIGTERM'), baseline + 1);
   await stop(); assert.equal(closed, 1); assert.equal(process.listenerCount('SIGTERM'), baseline);
   await assert.rejects(main({}, async () => { throw new Error('startup'); }), /startup/);
-  // default env/launcherの分岐も、nativeへ到達しない必須値欠落で検証する。
+  // Exercise default environment/launcher branches with missing required values before reaching native code.
   const prior = process.env.BRIDGE_CREDENTIAL; delete process.env.BRIDGE_CREDENTIAL;
   try { await assert.rejects(main(), /missing_environment/); }
   finally { if (prior !== undefined) process.env.BRIDGE_CREDENTIAL = prior; }

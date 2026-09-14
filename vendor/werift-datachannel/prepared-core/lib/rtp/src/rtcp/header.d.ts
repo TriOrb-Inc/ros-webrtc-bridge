@@ -4,7 +4,7 @@ export declare class RtcpHeader {
     padding: boolean;
     count: number;
     type: number;
-    /**このパケットの長さは、ヘッダーと任意のパディングを含む32ビットワードから 1を引いたものである */
+    /**The packet length in 32-bit words, including the header and any padding, minus one. */
     length: number;
     constructor(props?: Partial<RtcpHeader>);
     static serialize(type: number, count: number, payload: Buffer, length: number): Buffer<ArrayBuffer>;

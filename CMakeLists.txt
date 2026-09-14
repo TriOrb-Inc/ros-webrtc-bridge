@@ -30,9 +30,9 @@ if(NOT NPM_EXECUTABLE)
   message(FATAL_ERROR "npm was not found. Install Node.js/npm before building ros_webrtc_bridge.")
 endif()
 
-# 既定では CONTRIBUTING.md の手順どおり、ROS 環境内で npm ci と rclnodejs の
-# native 準備を済ませてから colcon build する。明示 option は clean build 用で、
-# npm lifecycle script を暗黙実行しない既存方針を維持する。
+# By default, follow CONTRIBUTING.md: run npm ci and prepare the rclnodejs
+# native addon in a ROS environment before colcon build. Explicit options support clean builds
+# while preserving the policy against implicitly running npm lifecycle scripts.
 if(ROS_WEBRTC_BRIDGE_RUN_NPM_INSTALL)
   add_custom_target(ros_webrtc_bridge_npm_install ALL
     COMMAND ${NPM_EXECUTABLE} ci --ignore-scripts --offline --no-audit --no-fund
@@ -48,8 +48,8 @@ elseif(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/node_modules")
   )
 endif()
 
-# clean workspace で npm install も CMake に任せる場合は、ROS を source した同じ
-# build で native addon と message binding も明示生成できるようにする。
+# When CMake also installs npm dependencies in a clean workspace, allow explicit generation
+# of the native addon and message bindings in the same build with ROS sourced.
 if(ROS_WEBRTC_BRIDGE_RUN_RCLNODEJS_REBUILD)
   add_custom_target(ros_webrtc_bridge_rclnodejs_rebuild ALL
     COMMAND ${NPM_EXECUTABLE} rebuild rclnodejs --foreground-scripts
@@ -68,8 +68,8 @@ elseif(ROS_WEBRTC_BRIDGE_RUN_NPM_INSTALL)
   )
 endif()
 
-# transport の materialize は TypeScript build より先に行う。生成された
-# vendor/werift-datachannel/.runtime/lib は npm の file dependency が参照する。
+# Materialize the transport before building TypeScript. The generated
+# vendor/werift-datachannel/.runtime/lib is referenced by the npm file dependency.
 add_custom_target(ros_webrtc_bridge_prepare_transport ALL
   COMMAND ${NPM_EXECUTABLE} run prepare:transport
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
@@ -92,8 +92,8 @@ add_dependencies(ros_webrtc_bridge_typescript_build ros_webrtc_bridge_prepare_tr
 
 set(ROS_WEBRTC_BRIDGE_LIB_DIR "lib/${PROJECT_NAME}")
 
-# TypeScript build には test も含まれるため、常駐 bridge が import する source subtree
-# だけを安定した install layout の dist/ へ配置する。
+# The TypeScript build includes tests, so install only the source subtree imported by
+# the persistent bridge under dist/ in a stable install layout.
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.runtime/build/packages/bridge/src/"
   DESTINATION "${ROS_WEBRTC_BRIDGE_LIB_DIR}/dist"
   FILES_MATCHING
@@ -101,9 +101,9 @@ install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.runtime/build/packages/bridge/sr
     PATTERN "*.js.map"
 )
 
-# package manifests と vendor の相対配置を維持する。特に
+# Preserve the relative layout of package manifests and vendor files. In particular,
 # node_modules/@ros-webrtc/werift-datachannel -> ../../vendor/werift-datachannel
-# という npm file dependency のリンク先を install tree にも用意する。
+# provide the target of this npm file dependency in the install tree as well.
 install(FILES package.json package-lock.json
   DESTINATION "${ROS_WEBRTC_BRIDGE_LIB_DIR}"
 )
@@ -112,9 +112,9 @@ install(DIRECTORY vendor/
   PATTERN "staging-*" EXCLUDE
 )
 
-# rclnodejs の生成済み native binding を含むため、既定では build に使用した locked
-# dependency tree を同梱する。Debian 等で依存を別 package として供給する場合だけ
-# OFF にし、同じ module 解決位置を release packaging 側で提供する。
+# The default bundles the locked dependency tree used for the build because it includes
+# generated rclnodejs native bindings. Set this option OFF only when dependencies are supplied
+# as separate packages, such as Debian packages, and preserve module resolution in release packaging.
 if(ROS_WEBRTC_BRIDGE_INSTALL_NODE_MODULES)
   install(DIRECTORY node_modules/
     DESTINATION "${ROS_WEBRTC_BRIDGE_LIB_DIR}/node_modules"

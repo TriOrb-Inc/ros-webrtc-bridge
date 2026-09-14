@@ -1,6 +1,6 @@
 import type { ScenarioInput, ScenarioResult } from './types.js';
 
-/** ブラウザ内で完結するraw wire E2E。入力: 実行時接続情報、出力: 匿名観測値。@param input 設定 @returns 実測結果 */
+/** Raw-wire E2E running entirely inside the browser. Input: runtime connection settings; returns anonymized measurements. */
 export async function browserScenario(input: ScenarioInput): Promise<ScenarioResult> {
   type Wire = Record<string, any>;
   type Received = { label: string; wire: Wire };
@@ -18,28 +18,28 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
   const rejectedTwists = new Set<string>();
   const runNonce = crypto.getRandomValues(new Uint32Array(2));
 
-  /** 固定の分類で条件を検証する。入力例: (true,'stage')、出力なし。 */
+  /** Check a condition with a fixed classification. Example: (true,'stage'); no return value. */
   function check(condition: unknown, stage: string): asserts condition { if (!condition) throw new Error(stage); }
-  /** 全体deadline内の短い待機。入力例: 20ms、出力なし。 */
+  /** Wait briefly within the overall deadline. Example input: 20 ms; no return value. */
   async function tick(ms = 20): Promise<void> {
     check(fatal === undefined, fatal ?? 'invalid_incoming_message');
     check(performance.now() < deadline, 'scenario_deadline');
     await new Promise<void>(resolve => setTimeout(resolve, Math.min(ms, Math.max(1, deadline - performance.now()))));
   }
-  /** peer状態を観測して有限時間待つ。入力例: 条件/段階、出力なし。 */
+  /** Observe peer state with a finite wait. Inputs: condition/stage; no return value. */
   async function until(condition: () => boolean, stage: string, duration = 15000): Promise<void> {
     const expires = Math.min(deadline, performance.now() + duration);
     while (!condition()) { check(performance.now() < expires, stage); await tick(); }
   }
-  /** request識別子を再利用せず生成する。入力: connection、出力例: r1。 */
+  /** Generate nonreused request IDs. Input: connection; returns e.g. r1. */
   function id(connection: Connection): string { return `r${++connection.request}`; }
-  /** channelへraw JSONを送る。入力: connection/label/wire、出力なし。 */
+  /** Send raw JSON to a channel. Inputs: connection/label/wire; no return value. */
   function send(connection: Connection, label: string, wire: Wire): void {
     const channel = connection.channels.get(label);
     check(channel?.readyState === 'open', 'channel_not_open');
     channel.send(JSON.stringify({ v: 1, ...wire }));
   }
-  /** 有界queueから該当応答だけを消費する。入力: predicate、出力: wire。 */
+  /** Consume only matching responses from a bounded queue. Input: predicate; returns a wire value. */
   async function receive(connection: Connection, predicate: (wire: Wire) => boolean, stage: string, duration = 15000): Promise<Wire> {
     let found = -1;
     await until(() => {
@@ -50,7 +50,7 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
     }, stage, duration);
     return connection.messages.splice(found, 1)[0]!.wire;
   }
-  /** request ID付きcontrolを送り期待operationを待つ。入力: op/fields、出力: 応答。 */
+  /** Send control with a request ID and await the expected operation. Inputs: op/fields; returns a response. */
   async function request(connection: Connection, op: string, fields: Wire, expected: string): Promise<Wire> {
     const requestId = id(connection);
     send(connection, CONTROL, { op, id: requestId, ...fields });
@@ -59,7 +59,7 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
     return result;
   }
 
-  /** 3本の実DataChannelとICE交換を確立する。入力なし、出力: 接続。 */
+  /** Establish three real DataChannels and exchange ICE information. No input; returns a connection. */
   async function connect(): Promise<Connection> {
     const start = performance.now();
     const pc = new RTCPeerConnection({ iceServers: input.iceServers ?? [], iceTransportPolicy: input.relayOnly ? 'relay' : 'all' });
@@ -69,14 +69,14 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
       const realtime = label === 'ros.realtime.v1';
       const channel = pc.createDataChannel(label, realtime ? { ordered: false, maxRetransmits: 0 } : { ordered: true });
       channel.binaryType = 'arraybuffer';
-      // SDKを介さず、受信handlerをhello/readyより前に登録する。
+      // Register receive handlers before hello/ready without using the SDK.
       channel.onmessage = event => {
         try {
           check(connection.messages.length < 1000, 'incoming_queue_limit');
           const text = typeof event.data === 'string' ? event.data : new TextDecoder('utf-8', { fatal: true }).decode(event.data as ArrayBuffer);
           const wire: Wire = JSON.parse(text);
           check(wire !== null && typeof wire === 'object' && wire.v === 1 && typeof wire.op === 'string', 'invalid_wire');
-          // 応答はcontrol、購読したString/observedはreliableというwire契約を確認する。
+          // Verify the wire contract: responses use control; subscribed String/observed data uses reliable.
           if (wire.op === 'message') {
             check(label === 'ros.reliable.v1' && connection.streams.has(wire.stream_id) && wire.epoch === connection.epoch, 'wrong_delivery_channel');
             const fingerprint = observedFingerprint(wire);
@@ -90,7 +90,7 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
     await pc.setLocalDescription(await pc.createOffer());
     await until(() => pc.iceGatheringState === 'complete', 'ice_gathering');
     check(pc.localDescription, 'missing_offer');
-    // credentialとSDPはページ内だけに保持し、reportや例外には含めない。
+    // Keep credentials and SDP only inside the page, excluding them from reports and exceptions.
     const response = await fetch(`${input.url.replace(/\/$/, '')}/offer`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${input.credential}` },
       body: JSON.stringify({ type: 'offer', sdp: pc.localDescription.sdp }), signal: AbortSignal.timeout(Math.max(1, Math.min(20000, deadline - performance.now()))),
@@ -109,7 +109,7 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
     check(!epochs.includes(connection.epoch), 'reused_epoch');
     epochs.push(connection.epoch);
     connectionMs.push(performance.now() - start);
-    // nominated/selectedの実candidate pairをgetStatsから取得する。
+    // Read the actual nominated/selected candidate pair from getStats.
     const stats = await pc.getStats();
     let pairId: string | undefined;
     stats.forEach(stat => { if (stat.type === 'transport' && stat.selectedCandidatePairId) pairId = stat.selectedCandidatePairId; });
@@ -123,7 +123,7 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
     return connection;
   }
 
-  /** subscribe応答後にreadyを送る。入力: connection/Topic、出力: stream ID。 */
+  /** Send ready after the subscribe response. Inputs: connection/topic; returns a stream ID. */
   async function subscribe(connection: Connection, topic: string): Promise<string> {
     const result = await request(connection, 'subscribe', { topic }, 'subscribed');
     check(typeof result.stream_id === 'string' && result.epoch === connection.epoch, 'invalid_subscribed');
@@ -131,34 +131,34 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
     send(connection, CONTROL, { op: 'ready', stream_id: result.stream_id });
     return result.stream_id;
   }
-  /** 全6fieldの新しい入力値を生成する。入力なし、出力: Twist。 */
+  /** Generate fresh values for all six fields. No input; returns a Twist. */
   function twist(): Wire {
     const value = ++sampleSequence / 32;
     return { linear: { x: runNonce[0]! / 4294967296 + value, y: -0.5, z: 0.125 },
       angular: { x: 0.25, y: -0.125, z: -(runNonce[1]! / 4294967296 + value) } };
   }
-  /** JSON key順に依存せず全6fieldを正規化する。入力: Twist、出力: fingerprint。 */
+  /** Normalize all six fields independently of JSON key order. Input: Twist; returns a fingerprint. */
   function fingerprint(value: Wire): string | undefined {
     if (!value || Object.keys(value).length !== 2 || !value.linear || !value.angular || Object.keys(value.linear).length !== 3 || Object.keys(value.angular).length !== 3) return undefined;
     const fields = [value.linear.x, value.linear.y, value.linear.z, value.angular.x, value.angular.y, value.angular.z];
     return fields.every(field => typeof field === 'number' && Number.isFinite(field)) ? JSON.stringify(fields) : undefined;
   }
-  /** 独立ROS対向nodeのJSON Stringから観測値を取得する。入力: wire、出力: fingerprint。 */
+  /** Extract observations from the independent ROS peer's JSON String. Input: wire value; returns a fingerprint. */
   function observedFingerprint(wire: Wire): string | undefined {
     if (wire.op !== 'message' || typeof wire.data?.data !== 'string') return undefined;
     try { return fingerprint(JSON.parse(wire.data.data)); } catch { return undefined; }
   }
-  /** native対向nodeのJSON Stringを全field比較する。入力: message/期待値、出力: 一致。 */
+  /** Compare every field in the native peer's JSON String. Inputs: message/expected value; returns whether they match. */
   function sameTwist(wire: Wire, expected: Wire): boolean {
     return observedFingerprint(wire) === fingerprint(expected);
   }
-  /** 外部ROS packageの全field境界値をwire表現で生成する。入力なし、出力: BridgeFrame。 */
+  /** Generate wire boundary values for all fields of the external ROS package. No input; returns BridgeFrame. */
   function customFrame(): Wire {
     return { meta: { source: `browser-${++customSequence}`, stamp: { sec: -1, nanosec: 999999999 } },
       signed_value: '-9223372036854775808', unsigned_value: '18446744073709551615',
       payload: 'AH+A/w==', samples: [0.25, -0.5, 1.5] };
   }
-  /** BridgeFrameをJSON key順に依存せず全field比較する。入力: message/期待値、出力: 一致。 */
+  /** Compare every BridgeFrame field independently of JSON key order. Inputs: message/expected value; returns whether they match. */
   function sameCustom(wire: Wire, expected: Wire): boolean {
     const value = wire.data;
     return value?.meta?.source === expected.meta.source && value?.meta?.stamp?.sec === expected.meta.stamp.sec
@@ -167,14 +167,14 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
       && Array.isArray(value?.samples) && value.samples.length === 3
       && value.samples.every((sample: unknown, index: number) => sample === expected.samples[index]);
   }
-  /** commandを1回送りROS API応答を確認する。入力: handle/lease/epoch/data、出力: 応答。 */
+  /** Send one command and check the ROS API response. Inputs: handle/lease/epoch/data; returns a response. */
   async function command(connection: Connection, handle: string, lease: string, epoch: string, data: Wire): Promise<Wire> {
     const seq = String(++commandSequence);
     const requestId = id(connection);
     send(connection, 'ros.realtime.v1', { op: 'publish', id: requestId, handle, lease_id: lease, epoch, seq, data });
     return receive(connection, wire => (wire.op === 'published_to_ros' && wire.handle === handle && wire.seq === seq) || (wire.op === 'error' && wire.id === requestId), 'command_ack');
   }
-  /** 新しいarmと入力から正常command対照を確認する。入力: connection/handle/stream、出力: lease ID。 */
+  /** Verify a positive control using a fresh arm and input. Inputs: connection/handle/stream; returns a lease ID. */
   async function positiveCommand(connection: Connection, handle: string, observed: string): Promise<string> {
     const lease = await request(connection, 'arm', { handle }, 'lease');
     const expected = twist();
@@ -183,7 +183,7 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
     await receive(connection, wire => wire.stream_id === observed && sameTwist(wire, expected), 'normal_command_observation');
     return lease.lease_id;
   }
-  /** 負の試験前に前の正常sampleの飛行中messageを回収する。入力: stream、出力なし。 */
+  /** Drain in-flight messages from the previous positive sample before negative tests. Input: stream; no return value. */
   async function settle(connection: Connection, stream: string): Promise<void> {
     let quietSince = performance.now();
     const expires = Math.min(deadline, quietSince + 3000);
@@ -195,7 +195,7 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
       await tick();
     }
   }
-  /** 拒否後の観測windowで新規commandが届かないことを検証する。入力: stream、出力なし。 */
+  /** Verify no new commands arrive during the observation window after rejection. Input: stream; no return value. */
   async function observeNothing(connection: Connection, stream: string): Promise<void> {
     const untilTime = performance.now() + 400;
     while (performance.now() < untilTime) {
@@ -206,7 +206,7 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
   }
 
   try {
-    // 初回+再接続2回で、同じpageでもsession/epochを使い回さないことを確認する。
+    // Use an initial connection and two reconnects to verify sessions and epochs are never reused, even within one page.
     for (let iteration = 0; iteration < 3; iteration++) {
       const connection = await connect();
       const output = await subscribe(connection, '/output');
@@ -218,7 +218,7 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
       const marker = crypto.randomUUID();
       let echoed = false;
       let seq = 0;
-      // rclpy対向nodeとのDDS matchingは固有markerの実echoで確認する。
+      // Verify DDS matching with the rclpy peer through an actual unique-marker echo.
       const echoDeadline = Math.min(deadline, performance.now() + 15000);
       while (!echoed) {
         check(performance.now() < echoDeadline, 'string_echo_timeout');
@@ -233,7 +233,7 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
           else await tick();
         }
       }
-      // core packageに依存を固定せず、外部overlayで生成した型を全field双方向に通す。
+      // Round-trip all fields of a type generated in an external overlay without fixing a dependency in the core package.
       const custom = customFrame();
       const customPublishSeq = String(customSequence);
       send(connection, 'ros.reliable.v1', { op: 'publish', handle: customPublisher.handle,
@@ -244,7 +244,7 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
       await receive(connection, wire => wire.stream_id === customOutput && sameCustom(wire, custom), 'custom_echo');
       const previousLease = await positiveCommand(connection, commander.handle, observed);
       await settle(connection, observed);
-      // browserとGatewayのclock原点を比較せず、250ms lease受領後400ms以上待つ。
+      // Wait at least 400 ms after receiving a 250 ms lease; do not compare browser and Gateway clock origins.
       const expireAt = performance.now() + 400;
       await until(() => performance.now() >= expireAt, 'lease_expiry_wait', 1000);
       const expiredPayload = twist();
@@ -253,7 +253,7 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
       check(expired.op === 'error', 'expired_lease_accepted');
       await observeNothing(connection, observed);
       await positiveCommand(connection, commander.handle, observed);
-      // 二度目以降は実際の前session epochを新しいhandleに付けて拒否を確認する。
+      // On subsequent connections, attach the actual previous session epoch to a new handle and verify rejection.
       if (iteration > 0) {
         await settle(connection, observed);
         const lease = await request(connection, 'arm', { handle: commander.handle }, 'lease');
@@ -278,7 +278,7 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
       oldEpochRejected: 'PASS', oldEpochCommandNotObserved: 'PASS', distinctEpochs: 'PASS', selectedCandidate: 'PASS',
     } };
   } catch (error) {
-    // ブラウザAPIの生の例外は接続情報を含みうるため、既知の試験段階だけを返す。
+    // Raw browser exceptions may contain connection details; return only known test stages.
     const known = new Set(['scenario_deadline', 'channel_not_open', 'invalid_incoming_message', 'peer_failed', 'ice_gathering',
       'missing_offer', 'offer_rejected', 'invalid_answer', 'channels_open', 'hello', 'welcome_rejected', 'catalog_mismatch',
       'reused_epoch', 'selected_pair_missing', 'candidate_type_missing', 'relay_required', 'invalid_subscribed', 'command_ack',

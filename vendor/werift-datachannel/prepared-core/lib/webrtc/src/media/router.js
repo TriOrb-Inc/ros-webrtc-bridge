@@ -156,7 +156,7 @@ class RtpRouter {
         });
     }
     registerRtpReceiverByRid(transceiver, param, params) {
-        // サイマルキャスト利用時のRTXをサポートしていないのでcodecs/encodingsは常に一つ
+        // There is always one codec/encoding because RTX with simulcast is not supported.
         const [codec] = params.codecs;
         log("registerRtpReceiverByRid", param);
         transceiver.addTrack(new track_1.MediaStreamTrack({

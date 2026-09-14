@@ -35,7 +35,7 @@ export declare class TransceiverManager {
     collectStats(timestamp: number): RTCStats[];
     getStatsRootIds(selector: MediaStreamTrack | null | undefined): string[];
     /**
-     * 全トランシーバーのreceiver/senderのstopを呼ぶcloseメソッド
+     * Close by calling stop on every transceiver's receiver and sender.
      */
     close(): void;
 }

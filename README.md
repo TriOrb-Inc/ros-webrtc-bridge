@@ -1,23 +1,23 @@
 # ros-webrtc-bridge
 
-ROS 2 TopicのPub/SubをWebRTC DataChannelへ双方向に接続するOSSです。現在は接続PoC段階で、Humble／JazzyのDocker環境と実Chromium間の双方向通信、直接接続・TURN UDP、install済みROS packageを検証しています。
+Open-source software connecting ROS 2 Topic Pub/Sub bidirectionally to WebRTC DataChannels. It is currently a connection proof of concept, with verification of bidirectional communication between Humble/Jazzy Docker environments and real Chromium, direct/TURN UDP connections, and installed ROS packages.
 
-[設計検討書](docs/design.md)に、構成、プロトコル、QoS、型変換、認証、MVPと検証計画をまとめています。
+The [design document](docs/design.md) describes architecture, protocols, QoS, type conversion, authentication, the MVP, and validation plans.
 
-基本方針は、設定で公開Topicと方向を限定し、ROS 2のQoSとWebRTCの配送方針を別々に定義することです。初期版ではブラウザとの小〜中サイズのメッセージ交換を対象とします。
+The approach is to explicitly configure exposed Topics and directions while defining ROS 2 QoS independently of WebRTC delivery. The initial version targets small-to-medium messages exchanged with browsers.
 
-初期対応対象はROS 2 HumbleとJazzyとし、Dockerでdistroごとに検証します。Web公開名は原則ROS Topic名と一致させ、YAMLで別名も指定できる設計です。
+Initial target distros are ROS 2 Humble and Jazzy, tested separately in Docker. Public Web names normally match ROS Topic names, with YAML aliases available.
 
-## 実装と実行
+## Implementation and execution
 
-- [設定](packages/bridge/src/config/README.md): YAML検証、公開名とROS接続先の解決、保護条件の衝突検出。
-- [codec](packages/bridge/src/codec/README.md): 明示した型descriptorによるJSON変換、64bit整数・base64・bounded値の検証。
-- [session](packages/bridge/src/session/README.md): commandのlease・sequence・所有権検証、peerごとの有限queue。
-- [ROS adapter](packages/bridge/src/ros/README.md): 型descriptor生成、rclnodejs値の正規化、固定ROS entityとlogical listener。
-- [router](packages/bridge/src/router/README.md): wire v1、ready、catalog、Pub/Sub、認可・rate・再接続。
-- [起動・HTTPS](packages/bridge/src/app/README.md): 単一Bearerの明示権限、TLS、3 DataChannel、資源解放。
+- [Configuration](packages/bridge/src/config/README.md): YAML validation, public-name/ROS-destination resolution, and protection-conflict detection.
+- [Codec](packages/bridge/src/codec/README.md): JSON conversion using explicit type descriptors, with 64-bit integer, base64, and bounded-value validation.
+- [Session](packages/bridge/src/session/README.md): command lease, sequence, and ownership validation; finite per-peer queues.
+- [ROS adapter](packages/bridge/src/ros/README.md): descriptor generation, rclnodejs normalization, fixed ROS entities, and logical listeners.
+- [Router](packages/bridge/src/router/README.md): wire v1, ready, catalog, Pub/Sub, authorization, rates, and reconnection.
+- [Startup and HTTPS](packages/bridge/src/app/README.md): explicit single-Bearer permissions, TLS, three DataChannels, and cleanup.
 
-Node.js 22（22.12以上、検証版22.22.2）で実行できます。
+Runs on Node.js 22 (22.12 or later; verified with 22.22.2).
 
 ```bash
 npm ci --ignore-scripts
@@ -26,26 +26,26 @@ npm run typecheck
 npm test
 ```
 
-`npm test`はbuild、単体・結合試験、ファイルごとのC0/C1 100%判定を実行します。生成物はGit管理外の`.runtime/`へ出力します。transportは[ライセンス適合を確認した同梱werift core](vendor/werift-datachannel/README.md)をnetworkなしで検証・生成します。
+`npm test` builds, runs unit/integration tests, and enforces C0/C1 100% for each file. Generated artifacts go under Git-ignored `.runtime/`. Transport preparation verifies and generates the [bundled, license-reviewed werift core](vendor/werift-datachannel/README.md) without network access.
 
-Linux Docker hostで接続試験を再現できます。
+Connection tests are reproducible on a Linux Docker host:
 
 ```bash
 npx playwright-core install chromium
 npm run test:connection
 ```
 
-Humble／Jazzyごとに専用networkでinstall済みGateway、独立rclpyノード、coturnを起動し、String／Twist、外部packageの独自BridgeFrame、期限切れcommand拒否、再接続、選択ICE候補を実測します。成否を問わずcontainer・network・一時credentialを解放します。[接続試験の前提と設定](tests/connection/README.md)を確認してください。
+For each Humble/Jazzy distro, the tests run an installed Gateway, independent rclpy node, and coturn on a dedicated network. They measure String/Twist and external custom BridgeFrame exchange, expired-command rejection, reconnection, and selected ICE candidates. Containers, networks, and temporary credentials are released regardless of outcome. See [connection test prerequisites and settings](tests/connection/README.md).
 
-性能回帰は`npm run test:performance`、長時間profileは`npm run test:soak`で、実WebRTC→ROS→Web RTT、throughput、CPU/RSS、cleanupを測定します。共有runnerの値は絶対性能保証ではありません。[性能harness](tests/performance/README.md)にprofileと未計測項目を記載しています。
+`npm run test:performance` runs performance regression tests; `npm run test:soak` uses a long-running profile. They measure real WebRTC→ROS→Web RTT, throughput, CPU/RSS, and cleanup. Shared-runner measurements are not absolute performance guarantees. The [performance harness](tests/performance/README.md) documents profiles and unmeasured areas.
 
-常駐起動は、ROS環境でnative依存を準備し、[起動設定](packages/bridge/src/app/README.md)を注入して`npm run bridge`を使います。ブラウザSDK、外向きrendezvous、多ユーザー認証、通信障害の全条件は未整備です。対応範囲と残件は[設計書 §14](docs/design.md#14-モジュール試作の契約と残る接続境界)に記載しています。
+For a persistent service, prepare native dependencies in the ROS environment, inject [startup settings](packages/bridge/src/app/README.md), and use `npm run bridge`. A browser SDK, outbound rendezvous, multi-user authentication, and comprehensive fault handling remain incomplete. See [design §14](docs/design.md#14-prototype-contracts-and-remaining-connection-boundaries) for implemented scope and remaining work.
 
-HTTPS serverと同じoriginの `/docs` でSwagger UIを閲覧できます。HTTP仕様は `/openapi.json` と `/openapi.yaml` で取得できます。対象は `GET /health` とBearer認証付き `POST /offer` です。Topic Pub/SubはDataChannel契約でありRESTではありません。UIは同梱assetを使い、外部validator通信と認証値の永続保存を無効にしています。
+Swagger UI is at `/docs` on the HTTPS server's origin. HTTP specifications are available at `/openapi.json` and `/openapi.yaml`, covering `GET /health` and Bearer-authenticated `POST /offer`. Topic Pub/Sub uses the DataChannel contract, not REST. The UI uses bundled assets with external validation and credential persistence disabled.
 
-## ROS 2 packageとして使う
+## Using the ROS 2 package
 
-ROS package名は`ros_webrtc_bridge`です。ROS環境でrclnodejsを準備した後、ament/colconでbuild・installできます。
+The ROS package is named `ros_webrtc_bridge`. Prepare rclnodejs in the ROS environment, then build/install through ament/colcon.
 
 ```bash
 source /opt/ros/<distro>/setup.bash
@@ -55,7 +55,7 @@ colcon build --packages-select ros_webrtc_bridge
 source install/setup.bash
 ```
 
-credentialとTLS鍵・証明書はcommand lineへ書かず、`BRIDGE_CREDENTIAL`、`BRIDGE_TLS_KEY`、`BRIDGE_TLS_CERT`として実行環境から注入します。Topicの購読・publish権限も既存のdefault denyを維持します。
+Inject credentials and TLS keys/certificates through `BRIDGE_CREDENTIAL`, `BRIDGE_TLS_KEY`, and `BRIDGE_TLS_CERT` in the execution environment, not command lines. Topic subscription/publication permissions retain default-deny behavior.
 
 ```bash
 export BRIDGE_CONFIG="$(ros2 pkg prefix ros_webrtc_bridge)/share/ros_webrtc_bridge/examples/bridge.yaml"
@@ -63,20 +63,19 @@ ros2 run ros_webrtc_bridge ros_webrtc_bridge
 ros2 launch ros_webrtc_bridge bridge.launch.py
 ```
 
-launchはinstall済み`examples/bridge.yaml`を既定設定にし、`config`、`host`、`port`、`node_name`をlaunch argumentで上書きできます。任意設定が参照するROS interface packageはdeployment側packageで依存宣言し、同じROS環境でrclnodejs bindingを再生成してください。詳細とCMake option、検証範囲は[ROS package化](docs/ros-packaging.md)を参照してください。
+Launch defaults to installed `examples/bridge.yaml`. Override `config`, `host`, `port`, and `node_name` with launch arguments. The deployment package declares dependencies for interfaces referenced by custom configurations; regenerate rclnodejs bindings in that ROS environment. See [ROS packaging](docs/ros-packaging.md) for details, CMake options, and verification scope.
 
-PR作成・再オープン・PRブランチへの追加pushでは、[GitHub Actions](.github/workflows/ci.yml)が単体・結合・カバレッジ・transport試験と、Humble／Jazzy、arm64／amd64、Fast DDS／Cyclone DDSの1軸差分matrixで実ROS・Chromium・colcon package外装試験を実行します。[性能workflow](.github/workflows/performance.yml)はPRで短時間回帰、週次と手動実行で1時間soakを行います。draft PRと文書変更も対象です。[CIの範囲と結果の確認](TESTS.md#8-ciと対応matrix)を参照してください。
+On PR creation, reopening, or pushes to a PR branch, [GitHub Actions](.github/workflows/ci.yml) runs unit/integration/coverage/transport tests and real ROS, Chromium, and colcon package tests across a matrix varying Humble/Jazzy, arm64/amd64, and Fast DDS/Cyclone DDS one axis at a time. The [performance workflow](.github/workflows/performance.yml) runs short PR regressions and one-hour soaks weekly or manually. Draft PRs and documentation changes are included. See [CI scope and results](TESTS.md#8-ci-and-support-matrix).
 
-## 開発・運用文書
+## Development and operations documentation
 
-- [フロントエンド接続ガイド](docs/frontend-integration.md): HTTPS signaling、固定3 DataChannel、購読・command・再接続と型変換の実装手順。
+- [Frontend integration guide](docs/frontend-integration.md): HTTPS signaling, three fixed DataChannels, subscription, commands, reconnection, and type conversion.
+- [CONTRIBUTING.md](CONTRIBUTING.md): development rules, validation, and dependency license policy.
+- [TESTS.md](TESTS.md): test design, acceptance criteria, coverage measurement, and CI/release gates.
+- [docs/ros-packaging.md](docs/ros-packaging.md): colcon build, install layout, execution, and dynamic interface dependencies.
+- [AGENTS.md](AGENTS.md): agent workflow and planning/development/QA team operation.
+- [SECURITY.md](SECURITY.md): security requirements and vulnerability-reporting status.
 
-- [CONTRIBUTING.md](CONTRIBUTING.md): 共通の開発規約、検証、依存ライセンス方針。
-- [TESTS.md](TESTS.md): テスト設計、受け入れ条件、カバレッジ測定、CIとリリースの判定方針。
-- [docs/ros-packaging.md](docs/ros-packaging.md): colcon build、install layout、実行、動的interface依存。
-- [AGENTS.md](AGENTS.md): エージェントの作業手順と計画・開発・QAの3チーム運用。
-- [SECURITY.md](SECURITY.md): セキュリティ要件と脆弱性報告の現状。
+## License
 
-## ライセンス
-
-[Apache License 2.0](LICENSE)。依存ライブラリのライセンスは個別に確認します。
+[Apache License 2.0](LICENSE). Dependency licenses are reviewed individually.

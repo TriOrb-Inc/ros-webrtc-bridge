@@ -1,2 +1,2 @@
-# Hash固定した上流compiler出力は元bytesを保持し、自作fileの空白検査とは分離する。
+# Preserve original bytes of hash-pinned upstream compiler output, separately from whitespace checks on our own files.
 vendor/werift-datachannel/prepared-core/** whitespace=-blank-at-eol,-blank-at-eof

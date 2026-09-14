@@ -1,219 +1,219 @@
-# テスト方針
+# Testing policy
 
-状態: Unit・結合試験、実ROS、実Chromium、direct / TURN UDP、ROS packageのclean offline build・install・起動、外部独自型、性能・soak harnessを実装しています。Humble/Jazzyのarm64、Jazzy arm64のFast DDS/Cyclone DDS差分で検証済みです。amd64はPR matrixへ追加済みで、実Actions結果を得るまでは検証済みと扱いません。通信障害等は未完了で、全ゲートの達成とは扱いません。現在の実行手順と範囲は§11に記載します。
+Status: Unit and contract tests, real ROS, real Chromium, direct / TURN UDP connections, clean offline ROS package build/install/startup, external custom types, and performance/soak harnesses are implemented. Local validation covers Humble/Jazzy on arm64 and the Fast DDS/Cyclone DDS difference on Jazzy arm64. The PR matrix includes amd64, but it is not considered verified until actual Actions results are available. Network-failure coverage and other areas remain incomplete; this does not mean all gates have passed. Section 11 describes current commands and scope.
 
-共通開発規約とカバレッジ必須条件の正本は [CONTRIBUTING.md](CONTRIBUTING.md)、製品の契約は [docs/design.md](docs/design.md)、セキュリティ境界は [SECURITY.md](SECURITY.md) とします。本書は、それらをどの環境・観測・合格条件で検証するかを定めます。仕様を変更する場合は関連文書も同時に更新します。
+[CONTRIBUTING.md](CONTRIBUTING.md) defines shared development rules and mandatory coverage. [docs/design.md](docs/design.md) defines product contracts, and [SECURITY.md](SECURITY.md) defines security boundaries. This document specifies the environments, observations, and acceptance criteria used to verify those contracts. Update related documents together when changing specifications.
 
-## 1. 目的と保証範囲
+## 1. Purpose and guarantees
 
-優先順位は、未許可・失効済みcommandのROS publish防止、型とprotocolの互換性、有限な資源使用、接続性、性能の順です。コードの行数より、故障した場合の利用者への影響に応じて試験を厚くします。
+Priorities, in order, are preventing unauthorized or expired commands from reaching ROS publication, type/protocol compatibility, bounded resource use, connectivity, and performance. Scale testing to the impact of failures on users rather than code size.
 
-- Topic Pub/Sub、設定、codec、adapter、session、SDK、signaling、transportを対象とします。
-- Service、Action、Parameters、MediaTrack、ROS-to-ROS循環中継は初期版の試験対象外です。
-- mockの成功は実ROSのQoS、native callback、DDS discovery、ブラウザ相互接続、NAT越えの証拠にはしません。
-- `published_to_ros`はROS publish API成功だけを確認します。controller受信・処理完了、exactly-once、ロボットの停止時間は保証しません。
-- command gateとwatchdogの実機試験は、対象controllerを含むシステムの検証として別に記録します。bridge単体の合格で代用しません。
+- Scope includes Topic Pub/Sub, configuration, codecs, adapters, sessions, SDKs, signaling, and transport.
+- Services, Actions, Parameters, MediaTracks, and cyclic ROS-to-ROS forwarding are outside initial-version test scope.
+- Mock success is not evidence of real ROS QoS, native callbacks, DDS discovery, browser interoperability, or NAT traversal.
+- `published_to_ros` confirms only ROS publish API success. It does not guarantee controller receipt/completion, exactly-once behavior, or robot stopping time.
+- Record hardware tests of command gates and watchdogs separately as system validation that includes the target controller. Bridge-only success is not a substitute.
 
-## 2. 層ごとの役割
+## 2. Responsibilities by layer
 
-| 層 | 主な対象・方法 | 合格の観測 |
+| Layer | Main targets and methods | Passing observations |
 | --- | --- | --- |
-| Unit | config/schema/codec、認可、lease、sequence、queue。clockと外部I/Oを注入 | 正常・異常・境界で、値・状態遷移・副作用回数が契約どおり |
-| Contract | mock/実ROS adapter共通interface、wire protocol、SDK、catalog、エラー | 同じfixtureと期待値が各実装に適合。major/schema不一致を明示拒否 |
-| 実ROS integration | rclnodejs、独立ROS node、QoS、entity寿命、独自message型 | ROS graphと実受信内容を観測。mockに置換しない |
-| Browser E2E | 実browser、SDK、実PeerConnection、signaling、実ROS | 両方向の通信と再接続、認可、channel設定を境界越しに確認 |
-| Network fault | 実transport、TURN、遅延・loss・帯域・切断の注入 | 選択ICE経路、drop、queue、失効後publish、復帰を観測 |
-| ROS package外装 | colcon discovery/build/test、install layout、`ros2 run`、`ros2 launch` | source tree外のinstall済みentrypointで起動し、HTTPS healthと資源解放を確認 |
-| Release / 性能 | 配布artifact、新規環境、長時間負荷、対応matrix | installから起動まで再現し、全必須ゲートと決定済みbudgetを満たす |
+| Unit | Configuration/schema/codec, authorization, leases, sequences, queues; injected clocks and external I/O | Values, state transitions, and side-effect counts match the contract in normal, failure, and boundary cases |
+| Contract | Shared mock/real ROS adapter interfaces, wire protocol, SDK, catalog, errors | The same fixtures and expectations fit each implementation; major/schema mismatches are explicitly rejected |
+| Real ROS integration | rclnodejs, independent ROS nodes, QoS, entity lifetime, custom message types | Observe the ROS graph and actual received data without replacing them with mocks |
+| Browser E2E | Real browsers, SDK, PeerConnections, signaling, real ROS | Verify bidirectional traffic, reconnects, authorization, and channel settings across boundaries |
+| Network fault | Actual transport, TURN, injected delay/loss/bandwidth constraints/disconnections | Observe selected ICE paths, drops, queues, publication after revocation, and recovery |
+| ROS packaging | colcon discovery/build/test, installation layout, `ros2 run`, `ros2 launch` | Start the installed entry point outside the source tree and verify HTTPS health and resource release |
+| Release / performance | Distributed artifacts, fresh environments, sustained load, support matrix | Reproduce installation through startup and satisfy all mandatory gates and agreed budgets |
 
-Unitは高速に多数の順序・境界を探索し、E2Eは主要な利用者経路と境界の接続を確認します。全組合せをE2Eへ重複実装しません。ただし認可・期限・資源解放はUnitだけで完了させません。
+Units explore many orderings and boundaries quickly; E2E checks major user flows and connected boundaries. Do not duplicate every combination in E2E. Authorization, expiry, and resource release still require more than unit tests alone.
 
-runnerはNode.js 22の`node:test`、coverageは`c8 12.0.0`を採用しています。TypeScript 5.9.3でsource mapを生成し、未importファイルと未実行分岐を含めて検査します。browser自動化は`playwright-core 1.63.0`を採用し、Chromium 153.0.8010.12で実WebRTCを検証しています。
+The runner is Node.js 22 `node:test`, with `c8 12.0.0` for coverage. TypeScript 5.9.3 generates source maps; checks include unimported files and unexecuted branches. Browser automation uses `playwright-core 1.63.0`, with actual WebRTC validated in Chromium 153.0.8010.12.
 
-## 3. Fixtureと独立した期待値
+## 3. Fixtures and independent expectations
 
-現在は`tests/unit/`、`tests/contracts/`、`tests/coverage/`、`tests/ros/`、`tests/browser/`、`tests/connection/`を使用します。network障害と性能専用directoryは後続の配置案です。
+Current test locations include `tests/unit/`, `tests/contracts/`, `tests/coverage/`, `tests/ros/`, `tests/browser/`, and `tests/connection/`. The layout below also includes dedicated network-failure and performance locations; section 11 distinguishes implemented coverage from future work.
 
 ```text
-packages/*/src/<module>/       # 実装と内部API文書
-tests/unit/<module>/           # config / codec / session
-tests/contracts/              # module結合。SDKは後続
-tests/coverage/               # 計測設定の独立校正
-tests/fixtures/               # 手で確認したwire値、config、型定義
-tests/ros/                    # 独立ROS publisher/subscriberとintegration
-tests/browser/                # browserから実ROSまでのE2E
-tests/connection/             # Docker隔離・direct/TURN matrixと後始末
-tests/network/                # TURN・障害注入・再接続
-tests/performance/            # 固定workloadと集計
+packages/*/src/<module>/       # Implementation and internal API documentation
+tests/unit/<module>/           # Configuration / codec / session
+tests/contracts/              # Module integration; SDK coverage follows later
+tests/coverage/               # Independent calibration of measurement settings
+tests/fixtures/               # Manually checked wire values, configuration, type definitions
+tests/ros/                    # Independent ROS publishers/subscribers and integration
+tests/browser/                # Browser-to-real-ROS E2E
+tests/connection/             # Docker isolation, direct/TURN matrix, cleanup
+tests/network/                # TURN, fault injection, reconnects
+tests/performance/            # Fixed workloads and aggregation
 ```
 
-- `std_msgs/String`、`nav_msgs/Odometry`、`geometry_msgs/Twist`と、nested・bounded・固定長・64bit値を含む独自ROS interfaceを用意します。各fixtureは完全なROS messageとし、設計の省略例を流用しません。
-- codecはROS型定義とwire仕様から独立に作成・レビューしたgolden vectorで、encodeとdecodeを別々に検証します。同じcodec同士の往復だけでは、対称な誤変換を検出できません。
-- 実ROSの対向nodeは別processのrclpyまたはrclcppで作成し、bridgeのcodecを共有しません。ROS→WebはROS側の期待値から、Web→ROSは独立nodeの受信値から判定します。
-- 文字列`"00123"`、整数の最小・最大と範囲外、空配列、UTF-8多byte、base64不正・復号後過大、非有限float、Time/Duration、欠落・未知fieldを含めます。
-- schema hashは固定vectorで検証し、codec version・field変更で変化し、正規化上等価な入力では変化しないことを確認します。
-- property-based試験を追加する場合もgolden vectorを残し、乱数seedと最小再現入力を保存します。snapshot更新は仕様差分のレビューを伴います。
+- Prepare `std_msgs/String`, `nav_msgs/Odometry`, `geometry_msgs/Twist`, and custom ROS interfaces with nested, bounded, fixed-length, and 64-bit values. Fixtures must be complete ROS messages, not abbreviated design examples.
+- Verify encode and decode separately using golden vectors independently derived and reviewed from ROS type definitions and wire specifications. Round trips through the same codec cannot detect symmetric conversion errors.
+- Implement real ROS peers as separate rclpy or rclcpp processes without sharing the bridge codec. Judge ROS → Web against ROS-side expectations and Web → ROS against values received by the independent node.
+- Include the string `"00123"`, integer minima/maxima and out-of-range values, empty arrays, multibyte UTF-8, invalid or oversized decoded base64, non-finite floats, Time/Duration, and missing/unknown fields.
+- Verify schema hashes with fixed vectors: codec-version or field changes alter the hash, while canonically equivalent inputs do not.
+- Retain golden vectors when adding property-based tests, and save random seeds and minimal reproductions. Snapshot updates require review of specification changes.
 
-## 4. 要件と受け入れ条件
+## 4. Requirements and acceptance criteria
 
-以下は初期版の必須条件です。IDをtest名またはmetadataに含め、実装時に実行先へ対応付けます。未実装の行は「未実装」、環境不足は「未実施」と報告し、合格へ数えません。
+The following are mandatory initial-version conditions. Include IDs in test names or metadata and map them to execution targets during implementation. Report missing implementations as **not implemented** and checks lacking an environment as **not run**; do not count either as passing.
 
-| ID | 場面・注入する条件 | 合格条件 | 主な層 |
+| ID | Scenario or injected condition | Acceptance criteria | Main layers |
 | --- | --- | --- | --- |
-| CFG-01 | 不正Topic名、未導入/未対応型、矛盾QoS、正値必須の上限0/負値、command設定衝突 | 起動時に原因付きで拒否。中途半端なcatalog/entityを残さない。ROS graphにまだpublisherがないだけでは設定を拒否しない | Unit、実ROS |
-| CFG-02 | `ros_topic`省略・明示、Web公開名の別名設定、設定外Topicの存在 | 省略時は`topics`のkeyをROS Topic名とWeb公開名に使い、明示時はkeyをWeb公開名、`ros_topic`をROS接続先に使う。catalogとSDKで同じ公開名を使い、設定外Topicは公開しない | Unit、Contract、実ROS |
-| TYPE-01 | 全fixtureを双方向変換、境界外・未知fieldを入力 | golden値と一致。不正入力はROS publishせず拒否 | Unit、Contract、実ROS |
-| PRO-01 | major/schema不一致、未知op、不正channel label/配送設定 | 接続または操作を明示拒否。許可前のデータを処理しない | Contract、Browser |
-| PRO-02 | dataとcontrolの順序を逆転、readyを遅延 | handler登録・ready前に配信しない。ready後の新規sampleだけを配信 | Contract、Browser |
-| PRO-03 | unsubscribe直後の遅着、重複request、旧handle、seq逆順 | tombstoneで遅着破棄。副作用を重複させずcache上限を維持。handleを再利用しない | Unit、Contract |
-| AUTH-01 | 他robot/session、未許可alias、方向/型違い、catalog取得 | default deny。権限外metadataを公開せずROS publish回数0 | Unit、Browser |
-| AUTH-02 | Web→ROSのpublish待機中、またはROS→Webのsampleがpeer queueでbackpressure待機中にACL/session/token失効 | ROS publish直前とDataChannelへの引渡し直前に再認可する。撤回処理完了後の新規ROS publishと、保護対象sampleの新規DataChannel引渡しはともに0。未送信queueとlistenerを解放する | Unit、実ROS、Browser |
-| CMD-01 | lease期限の直前・一致・直後に受信/queueから取り出し | `now >= expires_at`で失効し、一致・直後はpublish回数0。直前は他条件を満たす場合だけ許可 | Unit、Contract |
-| CMD-02 | 再arm、再接続、gateway再起動、旧epoch/lease/seq、切断中操作 | 新sessionに旧commandを再送しない。古い権限を再利用せず、SDKは新しい入力から生成 | Unit、Browser、実ROS |
-| CMD-03 | remap後に同じROS Topicへ到達する別aliasで同時arm | 正規化した出力Topic単位でwriterが1 session。旧所有者と別handleのlease流用を拒否 | Unit、実ROS |
-| ACK-01 | ROS publish成功/失敗、controller未起動 | API成功時だけpublished_to_ros。controller完了として表示・判定しない | Contract、実ROS |
-| QOS-01 | best_effort/reliableとvolatile/transient_local、互換/不一致 | 互換時の受信と不一致診断を区別。DataChannel設定でDDS欠落を回復したと扱わない | 実ROS |
-| QOS-02 | latched sample、遅延subscribe、複数publisher、ROS再起動 | DDS historyとWeb配信を区別。Gatewayがready処理前に受信したsampleを自動再生しない。ready後にDDSから受信したsampleはsource publish時刻と無関係に配信対象。snapshotは最後の1sampleと年齢だけで、tf_static全状態保証にしない | 実ROS、Browser |
-| SIZE-01 | envelope込みUTF-8 byte数が上限-1/上限/上限+1、対応sensor型の上限内message | `min(設定上限, 16KiB, 合意上限)`まで受理し、超過は明示拒否。sensor用途だけを理由に拒否せず、文字数で数えず断片化しない | Unit、Browser |
-| FLOW-01 | 1 peerを停止、他peerは継続。reliable/realtimeを飽和 | reliableはslow_consumer停止、realtimeは最新値へ集約しdrop記録。他peerの進行を維持 | Unit、Browser、負荷 |
-| FLOW-02 | ROS高rate、送信待ち、control flood、cache増加 | stream/peer/process/channel bufferとcacheを計上し上限内。ROS callbackを送信待ちでblockせずnative滞留も観測 | 実ROS、負荷 |
-| NET-01 | direct/relay-only、TURN UDP/TCP/TLS、UDP遮断 | 選択candidate pairから実経路を確認。対応宣言する経路は接続・双方向通信・切断復帰に成功 | Browser、Network |
-| LIFE-01 | subscribe/接続を反復、途中で例外・process終了 | 共有ROS entity数は設定数で一定。handle/listener/timer/bufferを解放し無期限増加しない | Unit、実ROS、負荷 |
-| SEC-01 | 深いJSON、過大SDP/ICE/schema、認証失敗、ログ出力 | 境界で上限・timeoutを適用。payload/認証情報/接続情報を既定logへ出さない | Unit、Browser |
-| OFFLINE-01 | root/vendorのnode_modules・`.runtime`とcolcon出力を除いたclean sourceをnetwork遮断containerでbuild | 事前準備済みlockfile cacheと同梱transportだけでnpm ci、binding生成、colcon build/test、install済みrun/launchまで成功。cache欠落はnetworkへfallbackせず失敗 | Package、CI |
-| INST-E2E-01 | source CLIを使わずcolcon install済み`ros2 run`をGatewayにして実browser・独立ROS nodeを接続 | package prefixがinstall treeで、String/Twist・lease/epoch・再接続・direct/relayの既存assertionを維持 | Browser、実ROS、Package |
-| TYPE-CUSTOM-01 | core外のinterface overlayでnested、bounded、固定配列、64bit、uint8列を生成 | core packageへtest型依存を追加せず、binding生成後に全fieldをWeb→ROS→Webで一致 | Browser、実ROS |
-| ARCH-AMD64-01 | Humble/Jazzyをnative amd64 runnerで実行 | image architectureと`process.arch=x64`を確認し、Fast DDSのnative・installed E2E・offline package試験がすべて成功 | CI |
-| RMW-02 | Fast DDS基準からCyclone DDSだけを変更 | 実RMW identifierが要求値と一致し、Humble/Jazzyのinstalled direct E2Eとnative試験が成功 | 実ROS、CI |
-| PERF-01 | 固定workloadで実WebRTC→ROS→Webを測定 | RTT・接続時間・throughput・CPU/RSS・loss/reject/unexpected・cleanupを匿名集計し、安全invariantと暫定budgetを区別 | Performance |
-| SOAK-01 | 同じinstalled経路を1時間継続 | crash/OOM、loss/reject/unexpected、RSS上限、cleanupを満たす。共有runner値を絶対性能保証にしない | Performance、週次CI |
-| SYS-01 | browser background/suspend、gateway crash、DDS/controller遅着 | 対象controllerのwatchdog/gateが規定どおり停止・遅着拒否。別途定めたシステム条件でのみ合格 | 実機・システム |
+| CFG-01 | Invalid Topic names, unavailable/unsupported types, contradictory QoS, zero/negative positive-only limits, conflicting command settings | Reject at startup with a reason and no partial catalog/entities. Do not reject configuration merely because the ROS graph has no publisher yet | Unit, real ROS |
+| CFG-02 | Omitted/explicit `ros_topic`, public aliases, unconfigured Topics present | Without `ros_topic`, use the `topics` key as both ROS and public name. Otherwise use the key as public name and `ros_topic` as ROS target. Catalog and SDK use the same public name; unconfigured Topics remain hidden | Unit, Contract, real ROS |
+| TYPE-01 | Convert all fixtures in both directions; supply out-of-range or unknown fields | Match golden values; reject invalid input without ROS publication | Unit, Contract, real ROS |
+| PRO-01 | Major/schema mismatch, unknown operations, invalid channel labels/delivery settings | Explicitly reject the connection or operation; do not process data before permission is granted | Contract, Browser |
+| PRO-02 | Reverse data/control ordering; delay ready | No delivery before handler registration and ready; deliver only new samples after ready | Contract, Browser |
+| PRO-03 | Late data immediately after unsubscribe, duplicate requests, old handles, reversed sequences | Discard late data using tombstones; avoid duplicate side effects and retain cache bounds; never reuse handles | Unit, Contract |
+| AUTH-01 | Other robots/sessions, unauthorized aliases, wrong direction/type, catalog access | Default deny; expose no unauthorized metadata and perform zero ROS publications | Unit, Browser |
+| AUTH-02 | Revoke ACL/session/token while Web → ROS publication waits, or while a ROS → Web sample waits under peer backpressure | Reauthorize immediately before ROS publication and DataChannel handoff. After revocation completes, perform zero new ROS publications and zero new protected-sample handoffs; release queued data and listeners | Unit, real ROS, Browser |
+| CMD-01 | Receive/dequeue immediately before, exactly at, and immediately after lease expiry | Expire at `now >= expires_at`; zero publications at/after expiry. Allow before expiry only if all other conditions hold | Unit, Contract |
+| CMD-02 | Rearm, reconnect, Gateway restart, old epoch/lease/sequence, operations while disconnected | Never resend old commands into a new session or reuse old permissions; the SDK creates commands from new input | Unit, Browser, real ROS |
+| CMD-03 | Concurrent arm through aliases resolving to the same ROS Topic after remapping | One writer session per normalized output Topic; reject old-owner or cross-handle lease reuse | Unit, real ROS |
+| ACK-01 | ROS publication succeeds/fails; controller is not running | Emit `published_to_ros` only on API success; do not display or interpret it as controller completion | Contract, real ROS |
+| QOS-01 | Compatible/incompatible best_effort/reliable and volatile/transient_local combinations | Distinguish successful compatible delivery from mismatch diagnostics; do not claim DataChannel settings recover DDS losses | Real ROS |
+| QOS-02 | Latched samples, delayed subscribe, multiple publishers, ROS restart | Distinguish DDS history from Web delivery. Do not replay samples received before Gateway ready handling. DDS samples received after ready may be delivered regardless of source publication time. A snapshot is only the last sample and its age, not a complete tf_static state guarantee | Real ROS, Browser |
+| SIZE-01 | Envelope-inclusive UTF-8 size at limit−1/limit/limit+1; supported sensor messages within bounds | Accept up to `min(configured limit, 16 KiB, negotiated limit)` and explicitly reject excess. Do not reject merely because the use case is sensors, count characters instead of bytes, or fragment automatically | Unit, Browser |
+| FLOW-01 | Stop one peer while others continue; saturate reliable/realtime traffic | Stop reliable streams with slow_consumer; coalesce realtime to the latest value and record drops; preserve other peers' progress | Unit, Browser, load |
+| FLOW-02 | High ROS rate, pending sends, control flood, cache growth | Account for stream/peer/process/channel buffers and cache within limits. Do not block ROS callbacks on sends; observe native backlog too | Real ROS, load |
+| NET-01 | Direct/relay-only, TURN UDP/TCP/TLS, UDP blocking | Verify actual paths from selected candidate pairs. Every claimed supported path passes connection, bidirectional traffic, and reconnect recovery | Browser, Network |
+| LIFE-01 | Repeated subscriptions/connections, exceptions or process termination mid-operation | Shared ROS entity counts stay fixed by configuration. Release handles/listeners/timers/buffers without unbounded growth | Unit, real ROS, load |
+| SEC-01 | Deep JSON, oversized SDP/ICE/schema, authentication failure, logging | Enforce boundary limits/timeouts; exclude payloads, authentication, and connection information from default logs | Unit, Browser |
+| OFFLINE-01 | Build clean source without root/vendor node_modules, `.runtime`, or colcon outputs in a network-blocked container | Using only a prepared lockfile cache and bundled transport, complete npm ci, binding generation, colcon build/test, and installed run/launch. Missing cache entries fail without network fallback | Package, CI |
+| INST-E2E-01 | Connect a real browser and independent ROS node to the colcon-installed Gateway using `ros2 run`, not the source CLI | Package prefix points into the installation; retain String/Twist, lease/epoch, reconnect, direct/relay assertions | Browser, real ROS, Package |
+| TYPE-CUSTOM-01 | Generate nested, bounded, fixed-array, 64-bit, and uint8-sequence types in an external interface overlay | Do not add test-type dependencies to core; match all fields through Web → ROS → Web after binding generation | Browser, real ROS |
+| ARCH-AMD64-01 | Run Humble/Jazzy on native amd64 runners | Verify image architecture and `process.arch=x64`; all Fast DDS native, installed E2E, and offline packaging tests pass | CI |
+| RMW-02 | Change only Fast DDS to Cyclone DDS from the baseline | Actual RMW identifier matches the request; Humble/Jazzy installed direct E2E and native tests pass | Real ROS, CI |
+| PERF-01 | Measure real WebRTC → ROS → Web with a fixed workload | Aggregate RTT, connection time, throughput, CPU/RSS, loss/reject/unexpected, and cleanup without sensitive data; distinguish safety invariants from provisional budgets | Performance |
+| SOAK-01 | Sustain the same installed path for one hour | Satisfy crash/OOM, loss/reject/unexpected, RSS, and cleanup criteria; do not treat shared-runner values as absolute performance guarantees | Performance, weekly CI |
+| SYS-01 | Browser backgrounding/suspension, Gateway crash, delayed DDS/controller delivery | The target controller watchdog/gate stops and rejects late data as specified; pass only under separately defined system conditions | Hardware/system |
 
-CMD-01は設計書のmonotonic clockによる期限境界を検証します。browserのwall clockでGatewayの期限判定を置き換えません。
+CMD-01 verifies the monotonic-clock expiry boundaries in the design. Do not substitute the browser wall clock for Gateway expiry decisions.
 
-拒否条件はエラー応答だけでなく、write方向はadapter spyのpublish回数0と独立ROS subscriber、read方向はtransport spyへの保護対象sample引渡し回数0と独立browserで確認します。ROS側やbrowser側で「届かなかった」ことだけでは検出漏れの可能性があるため、matching済みobserver、試験前後の正常な対照sample、固有marker、観測windowを設定します。QoS不一致による未受信を拒否成功と判定しません。
+Verify rejection beyond error responses: for writes, assert zero publications with adapter spies and an independent ROS subscriber; for reads, assert zero protected-sample handoffs with transport spies and an independent browser. Mere absence at ROS or the browser could mean missed detection, so establish matched observers, valid controls before and after testing, unique markers, and observation windows. Do not misinterpret missing delivery from QoS mismatch as successful rejection.
 
-read方向の撤回保証は、撤回処理完了後にapplication queueから保護対象sampleを新たにtransportへ引き渡さないことを境界とします。撤回前にDataChannelへ引渡し済みのsampleの回収は保証しません。
+Read-side revocation guarantees stop at the boundary where protected samples are newly handed from the application queue to transport after revocation completes. They do not guarantee retrieval of samples already handed to a DataChannel before revocation.
 
-認可・protocol・入力検証はSDKを通さないraw clientからも試験します。SDKが不正入力を防ぐことだけでGateway側の検証を証明しません。
+Test authorization, protocol, and input validation with raw clients that bypass the SDK. An SDK preventing invalid input does not prove Gateway validation.
 
-## 5. 時刻・競合・障害の制御
+## 5. Controlling time, races, and faults
 
-- lease、request cache、rate、timeoutの境界はfake monotonic clockで試験します。tokenの絶対期限を扱うidentity validatorにはwall clockを別に注入し、期限判定を試験します。wall clockの前進・後退をlease判定へ影響させません。
-- Web→ROSは受信時検証とROS publish直前、ROS→Webはqueue投入とtransport引渡し直前の間にbarrierを置き、ACL撤回、期限到達、切断、writer交代を意図的に発生させます。偶然の競合を待つ試験にしません。
-- timerをfakeにしたUnitだけでは実event loopやbrowser throttlingを確認できないため、実timerのBrowser/実ROS試験を残します。
-- 実timer試験は期限より十分内側/外側を使い、正確な境界一致はUnitで確認します。許容時間は測定環境に応じた設定値とし、期限切れcommandの受理を許容誤差へ含めません。
-- 異なるchannelを意図的に遅延させるtransport harnessと実PeerConnectionの両方で、control/dataの順序に依存しないことを確認します。
-- network障害は方向を明記し、loss 1%/5%、RTT 100/300ms、帯域制限、切断・復帰を設定化します。注入値と実測値を記録し、Unitのpacket破棄だけで実ネットワーク試験を代用しません。乱数seedだけではprocess schedulingやpacket順序まで再現できないため、適用方向と時系列も残します。
-- TURNはrelay-onlyを強制する試験を含め、directへのfallbackを成功としません。接続成功だけではTURN利用の証拠にならないため選択candidate pairを収集します。
+- Test lease, request-cache, rate, and timeout boundaries with a fake monotonic clock. Separately inject a wall clock into identity validators that handle absolute token expiry. Wall-clock jumps must not affect leases.
+- Insert barriers between receive validation and ROS publication for Web → ROS, and between queueing and transport handoff for ROS → Web. Deliberately trigger ACL revocation, expiry, disconnection, and writer changes rather than waiting for accidental races.
+- Retain Browser/real ROS tests using actual timers; fake-timer units cannot establish real event-loop or browser-throttling behavior.
+- With real timers, test comfortably inside/outside deadlines; verify exact equality in units. Configure tolerances for the environment, but never allow expired commands as part of timing tolerance.
+- Verify independence from control/data ordering using both a transport harness that deliberately delays different channels and actual PeerConnections.
+- Specify fault direction and configure 1%/5% loss, 100/300 ms RTT, bandwidth limits, disconnects, and recovery. Record injected and measured values. Unit packet dropping does not replace actual network tests. Seeds cannot reproduce process scheduling or packet order alone; retain direction and timing as well.
+- Include forced relay-only TURN tests and do not count direct fallback as success. Collect selected candidate pairs; successful connection alone does not prove TURN use.
 
-## 6. 環境の隔離と後始末
+## 6. Environment isolation and cleanup
 
-実ROS jobはDockerで独立起動し、job専用network、衝突しない`ROS_DOMAIN_ID`とTopic namespaceを持たせます。domain番号は有効範囲から排他的に割り当て、並列jobで固定値を共有しません。hostや他jobのROS graphへ試験node・Topic・messageが混入しないことを確認します。domain分離だけをセキュリティ境界にせず、DDS discoveryもjobのnetwork内へ限定します。
+Run real ROS jobs independently in Docker with job-specific networks, nonconflicting `ROS_DOMAIN_ID` values, and Topic namespaces. Allocate domain IDs exclusively from their valid range rather than sharing a fixed value across parallel jobs. Verify that test nodes, Topics, and messages do not enter host or other-job ROS graphs. Domain isolation alone is not a security boundary; confine DDS discovery to the job network too.
 
-- ROS node、bridge、signaling、TURNはjob所有のprocessとして起動します。discoveryとready状態を確認してからsampleを送ります。
-- port、browser profile、作業領域、証明書をjob単位に分離します。必要なcredentialは実行時に生成・注入し、リポジトリやartifactへ保存しません。
-- 待機には個別timeoutとjob全体のdeadlineを設けます。固定sleepだけで成功を判断しません。
-- 成否を問わずfinallyでbrowser、PeerConnection、ROS entity、child process、port、network impairmentを解放します。残留process/handleも失敗として検出します。
-- impairmentは専用namespace内へ適用し、開発端末や共有runnerのネットワークを変更しません。
-- stdoutは共通規約の5秒以内の進捗出力に従います。分割できない無出力工程は、開始前に理由・見込み時間を記録します。
-- ローカルの一時出力は`.runtime/`へ置きます。CI artifactはcredential/payload/SDP/ICE情報を除去し、保存期間をjob設定で定めます。
+- Run ROS nodes, the bridge, signaling, and TURN as job-owned processes. Verify discovery and readiness before sending samples.
+- Isolate ports, browser profiles, workspaces, and certificates per job. Generate/inject credentials at runtime without storing them in the repository or artifacts.
+- Use per-wait timeouts and an overall job deadline; fixed sleeps alone do not establish success.
+- Release browsers, PeerConnections, ROS entities, child processes, ports, and network impairments in finally blocks on success or failure. Detect leftover processes/handles as failures.
+- Apply impairments only in dedicated namespaces, never to developer-machine or shared-runner networks.
+- Follow the shared rule of progress output at least every five seconds. Before an indivisible silent operation, report its reason and expected duration.
+- Store local temporary output in `.runtime/`. Remove credentials/payloads/SDP/ICE information from CI artifacts and configure retention per job.
 
-## 7. カバレッジ
+## 7. Coverage
 
-[共通規約](CONTRIBUTING.md#testing-rules)の **C0・C1とも100%必須** を継承します。C0はstatement、C1はbranchを対応指標とし、line率だけで代用しません。MC/DCは対象外です。
+The [shared rules](CONTRIBUTING.md#testing-rules) require **100% C0 and C1**. Use statement coverage for C0 and branch coverage for C1, not line coverage alone. MC/DC is out of scope.
 
-- 測定対象はbridge、SDK、signalingを含む自前の全runtime TypeScriptです。ROS adapter、起動処理、例外・終了経路を対象から外しません。現実装はbridgeのみで、`.c8rc.json`の対象は`packages/bridge/src/**/*.ts`です。新packageの追加と同時に対象を拡張してください。
-- coverageのincludeで対象sourceを明示し、テストがimportしなかったファイルも0%として集計します。全体と各fileでC0/C1 100%を確認します。
-- unit/contract/integration/browserの必要な計測結果を同じcommit・同じsourceに対応付けて統合します。Node/browser間の重複やsource mapの誤対応を確認します。
-- M0で未実行branchを含む小さなfixtureを使い、TypeScriptへのsource map、未実行fileの検出、branch集計、複数jobのmergeを検証します。runnerの既定設定だけを信用しません。
-- 外部依存、ROS/DDS/native library、生成物、型宣言、テスト/harnessはruntime TSの分母から除外します。除外一覧と理由をcoverage設定に記録し、生成元の自前runtime処理は除外しません。
-- native/DDSはcoverage外でも実ROS試験が必要です。将来自前native codeを導入した場合は、その言語の測定方針を追加してから合格判定します。
-- 外部境界のstubはUnitに利用できますが、stub実行による100%を実ROS/実transport対応の証拠にはしません。期待する副作用のassertionがない実行で数値だけを満たすことを禁止します。
-- 到達不能codeは削除または設計を見直します。数値達成だけを目的としたignore、分母縮小、常時skipは認めません。必要な例外は共通規約の変更として先に合意・記録します。
+- Measure all first-party runtime TypeScript, including bridge, SDK, and signaling. Do not exclude ROS adapters, startup, exceptions, or shutdown paths. The current implementation is bridge-only; `.c8rc.json` includes `packages/bridge/src/**/*.ts`. Expand it when adding packages.
+- Explicitly include target sources so files never imported by tests still count at 0%. Verify C0/C1 100% overall and per file.
+- Merge required unit/contract/integration/browser measurements tied to the same commit and source. Check duplicate Node/browser measurements and incorrect source-map associations.
+- At M0, use small fixtures with unexecuted branches to calibrate TypeScript source maps, detection of unexecuted files, branch counting, and multi-job merging. Do not trust runner defaults alone.
+- Exclude external dependencies, ROS/DDS/native libraries, generated artifacts, type declarations, and tests/harnesses from the runtime TypeScript denominator. Record exclusions and reasons in coverage configuration; do not exclude the first-party runtime source that produced generated artifacts.
+- Native/DDS boundaries need real ROS tests even when outside coverage. If first-party native code is introduced, add a measurement policy for its language before declaring success.
+- Units may stub external boundaries, but 100% through stubs does not establish real ROS/transport support. Do not satisfy numeric targets through execution without assertions about expected side effects.
+- Remove unreachable code or reconsider its design. Do not use ignores, shrink denominators, or permanently skip tests merely to reach a number. Agree and record necessary exceptions as shared-rule changes first.
 
-カバレッジは受け入れ表の代替ではありません。100%でも要件が未検証なら合格とせず、実装追加PRでは未計測を達成済みとして扱いません。
+Coverage does not replace the acceptance table. Even 100% is insufficient when requirements remain unverified; implementation PRs must not report unmeasured coverage as achieved.
 
-## 8. CIと対応matrix
+## 8. CI and support matrix
 
-### 現在のPR workflow
+### Current PR workflow
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml)は`pull_request`の`opened`・`reopened`・`synchronize`で起動します。新しいcommitのpushは`synchronize`に対応します。base branch・変更pathによる絞り込みはせず、draft PRと文書だけの変更でも全jobを実行します。PR番号ごとのconcurrencyで古い実行をキャンセルし、最新変更を検証します。
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on `pull_request` events `opened`, `reopened`, and `synchronize`; pushing a new commit triggers `synchronize`. It does not filter by base branch or changed paths: all jobs run for draft PRs and documentation-only changes too. Per-PR concurrency cancels older runs to validate the latest changes.
 
-- Unit job: Node 22.22.2、`npm ci --ignore-scripts`、transport生成、typecheck、Unit/Contractとファイル別C0/C1 100%、計測校正、実DataChannel試験。
-- ROS job: Humble／Jazzyごとに`arm64 + Fast DDS`、`amd64 + Fast DDS`、`amd64 + Cyclone DDS`の1軸差分matrixを別VMで実行。独立native試験、install済みGatewayとChromiumのdirect、Fast DDSではTURN UDP、network遮断したclean colcon build/test/run/launchを検証します。片方の失敗で他方の結果を省略しません。
-- Performance workflow: PRではJazzy/amd64/Fast DDSの15秒回帰profile、週次と手動`soak`では同じinstalled経路を1時間実行します。匿名集計値だけをSummaryへ出し、共有runnerの絶対値は製品性能保証にしません。
-- `contents: read`だけを付与し、checkout credentialを保持しません。CIで長期credentialを必要とせず、接続試験のcredential・TLS鍵はharnessが実行時生成します。PRのmerge commitをcheckoutしてbaseとの組合せを検証します。
-- jobと長時間工程にtimeoutを設けます。通常終了・失敗時はharnessが資源を解放し、強制cancel時に残る資源はjob専用VMの破棄で回収します。
+- Unit job: Node 22.22.2, `npm ci --ignore-scripts`, transport preparation, typecheck, Unit/Contract tests and per-file C0/C1 100%, measurement calibration, and actual DataChannel tests.
+- ROS jobs: separate VMs for each Humble/Jazzy combination with arm64 + Fast DDS, amd64 + Fast DDS, and amd64 + Cyclone DDS, changing one axis from baseline. Validate independent native tests, installed Gateway/Chromium direct connections, TURN UDP for Fast DDS, and clean network-blocked colcon build/test/run/launch. A failure in one must not suppress the other results.
+- Performance workflow: PRs run a 15-second Jazzy/amd64/Fast DDS regression profile; weekly/manual `soak` runs the same installed path for one hour. Summaries contain sanitized aggregates only; shared-runner absolute values are not product performance guarantees.
+- Grant only `contents: read` and do not retain checkout credentials. CI needs no long-lived credentials; harnesses generate connection credentials and TLS keys at runtime. Check out the PR merge commit to validate its combination with the base.
+- Set timeouts for jobs and long operations. Harnesses release resources after success/failure; disposal of job-specific VMs reclaims leftovers after forced cancellation.
 
-PRのChecksから各jobのログとJob Summaryを確認できます。coverage-summaryと匿名の接続結果をSummaryへ、credentialを渡さないDocker image buildのログをjobログへ明示したpathだけから出力します。`.runtime/`全体、秘密ファイル、Gateway/TURNのログは収集しません。結果生成前の失敗はSummaryに結果なしと表示し、jobログから診断します。生成済み結果だけでは全job成功と判定しません。
+PR Checks expose job logs and Job Summaries. Publish coverage summaries and sanitized connection results to summaries, and credential-free Docker image-build diagnostics to job logs from explicitly selected paths only. Do not collect all of `.runtime/`, secret files, or Gateway/TURN logs. Failures before results are generated appear as missing results in summaries and require job-log diagnosis. Generated results alone do not prove that every job passed.
 
-保存期間はリポジトリのActionsログ保持設定に従います。生coverageや接続結果のダウンロード用artifactは未実装です。必要な詳細結果は§11の同じコマンドで再現し、ローカル`.runtime/`から取得します。
+Retention follows the repository's Actions log settings. Downloadable artifacts containing raw coverage or connection results are not implemented. Reproduce detailed results with the section 11 commands and retrieve them from local `.runtime/`.
 
-このworkflowを含むPRから適用され、既存PRへ遡って自動追加されるものではありません。全PRへ共通適用するにはbase branchへmergeします。fork PRはGitHub側の実行承認設定、merge conflictがあるPRはGitHubの実行条件に従います。[PRイベントの条件](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request)
+The workflow applies starting with PRs that contain it; it is not automatically added retroactively to existing PRs. Merge it into the base branch for shared application. Fork PRs follow GitHub's execution-approval settings; conflicted PRs follow GitHub's execution conditions. See [pull request event conditions](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request).
 
-CIの自動実行と、失敗時にmergeを禁止するbranch protection / rulesetは別設定です。必須チェックの管理設定はこのworkflowでは変更しません。
+Automatic CI and branch-protection/ruleset settings that prohibit merging on failure are separate. This workflow does not change required-check administration.
 
-### 後続のgateと対応目標
+### Future gates and support goals
 
-以下は現行PR workflowに追加する目標です。lint、障害注入、nightly、controller、releaseの全ゲートは未整備です。実装済み機能の必須jobが環境不足で動かなければ、その変更は未検証です。
+The following are goals to add to the current PR workflow. Lint, fault injection, nightly, controller, and full release gates are not yet complete. If a required job for an implemented feature cannot run due to its environment, that change remains unverified.
 
-| 実行契機 | 必須ゲート | 実行範囲 |
+| Trigger | Mandatory gates | Scope |
 | --- | --- | --- |
-| M0実装PR | そのPRで導入するbuild/typecheck、Unit/Contract、C0/C1 100%、Humble・Jazzyの実ROSとChromium E2E | PoCの実装と同じPRにrunnerと再現手順を追加して合格させる。未導入の後続機能は未実装と明記し、M0実装の検証を免除しない |
-| M1以降の実装PR | build/lint/typecheck、Unit/Contract、C0/C1 100%、Humble・Jazzy両基準環境の実ROSとChromium E2E | M0の継続ゲートに型fixture、adapter共通契約、変更に対応する受入れIDを追加。runtime全体のcoverageが必要なjobは変更箇所にかかわらず実行 |
-| 通信・認可・QoS・依存変更PR | 対応する段階の実装PRゲートに加え、relay-only、該当競合/障害、影響する対応環境 | nightlyまで待たず、その変更のリスクを検証 |
-| nightly | SYS-01以外のbridge受入れ条件、対応matrix、TURN経路、障害注入、反復解放、長時間負荷 | PRで絞った組合せを展開。失敗を翌日のrelease候補へ持ち越さない |
-| controller併用例の実機試験 | SYS-01、controller固有のwatchdog/gate条件 | core nightlyとは別job。併用例のrelease前とcontroller契約変更時は必須 |
-| release候補 | 候補commit・lockfile・配布artifactを固定した全必須試験、決定済み性能budget、clean install、依存/license確認 | 宣言する全環境・経路。artifactのhashを記録し、過去commitの成功を流用しない |
+| M0 implementation PR | Build/typecheck introduced by the PR, Unit/Contract, C0/C1 100%, real ROS and Chromium E2E on Humble and Jazzy | Add and pass runners/reproduction steps in the same PR as the PoC implementation. Mark future features as unimplemented, without exempting M0 implementation from validation |
+| M1+ implementation PR | Build/lint/typecheck, Unit/Contract, C0/C1 100%, real ROS and Chromium E2E in both Humble/Jazzy baselines | Extend M0 gates with type fixtures, shared adapter contracts, and acceptance IDs for the change. Run jobs required for whole-runtime coverage regardless of changed files |
+| Communication/authorization/QoS/dependency PR | Gates for its implementation stage, plus relay-only, relevant races/faults, and affected supported environments | Validate the change's risks without waiting for nightly |
+| Nightly | Bridge acceptance criteria except SYS-01, support matrix, TURN paths, fault injection, repeated resource cleanup, sustained load | Expand combinations narrowed for PRs. Do not carry failures into the next day's release candidate |
+| Hardware tests for controller examples | SYS-01 and controller-specific watchdog/gate criteria | Separate from core nightly; required before releasing examples and when controller contracts change |
+| Release candidate | All mandatory tests pinned to the candidate commit/lockfile/artifact, agreed performance budgets, clean installation, dependency/license review | Every claimed environment/path; record artifact hashes and do not reuse success from earlier commits |
 
-対応目標はROS 2 HumbleとJazzyです。PRとreleaseの基準環境はUbuntu 22.04 / ROS 2 Humble、およびUbuntu 24.04 / ROS 2 Jazzyの両方とし、Fast DDS / Linux amd64 / Chromiumを対応目標とします。現行PR CIはarm64基準に加えてnative amd64 runnerとCyclone DDS差分を実行します。各環境をDockerで再現し、Node、rclnodejs、RMW、transport、browserは検証versionへ固定します。workflow追加だけでは対応済みとせず、対象SHAのActions結果を確認します。
+Target ROS distributions are Humble and Jazzy. PR/release baselines are both Ubuntu 22.04 / ROS 2 Humble and Ubuntu 24.04 / ROS 2 Jazzy, targeting Fast DDS / Linux amd64 / Chromium. Current PR CI adds native amd64 runners and Cyclone DDS variation to its arm64 baseline. Reproduce each environment in Docker and pin Node, rclnodejs, RMW, transport, and browser versions. Adding workflow entries alone does not establish support: inspect Actions results for the target SHA.
 
-| 環境・軸 | 導入順序と昇格条件 |
+| Environment or axis | Introduction and promotion criteria |
 | --- | --- |
-| ROSなしmock / 固定Node version | M0から全PR。ROSなしで契約を再現 |
-| Ubuntu 22.04 + Humble + Fast DDS + amd64 + Chromium | M0で双方向PoC、M1以降は基準PR job、release必須 |
-| Ubuntu 24.04 + Jazzy + Fast DDS + amd64 + Chromium | M0で双方向PoC、M1以降は基準PR job、release必須 |
-| Firefox / Playwright WebKit | M2までにBrowser E2Eを追加し対応範囲を明記。Playwrightのpatched Firefoxと製品版Firefox、WebKitと実Safariを区別。製品版対応は別途実機確認 |
-| Linux arm64 | 現行PR CIの基準。Humble/Jazzyのbuild・実ROS・E2Eをnative runnerで実行。性能保証は別途評価 |
-| Cyclone DDS / 追加ROS distro | 需要とrunner確保を条件に実ROS契約/QoS試験を追加。未実施のRMW/distroを対応表へ入れない |
-| TURN UDP/TCP/TLS・UDP遮断 | M0はTURN成立を確認。M2は経路別結果を公開し、対応宣言した経路をrelease必須化 |
+| ROS-free mock / fixed Node version | Every PR from M0; reproduce contracts without ROS |
+| Ubuntu 22.04 + Humble + Fast DDS + amd64 + Chromium | Bidirectional PoC at M0; baseline PR job from M1; mandatory for release |
+| Ubuntu 24.04 + Jazzy + Fast DDS + amd64 + Chromium | Bidirectional PoC at M0; baseline PR job from M1; mandatory for release |
+| Firefox / Playwright WebKit | Add Browser E2E and document support by M2. Distinguish Playwright's patched Firefox from product Firefox, and WebKit from actual Safari; product support needs separate real-browser validation |
+| Linux arm64 | Current PR CI baseline; native runners execute Humble/Jazzy build, real ROS, and E2E. Assess performance guarantees separately |
+| Cyclone DDS / additional ROS distributions | Add real ROS contract/QoS tests as demand and runners permit. Do not list untested RMWs/distributions as supported |
+| TURN UDP/TCP/TLS and UDP blocking | Establish TURN at M0; publish per-path results at M2 and require claimed supported paths for release |
 
-Humble・Jazzyの両基準環境は必須とし、追加軸の全直積は要求せず、基準環境から1軸ずつ変えるmatrixを使います。組合せ固有の不具合が出た場合はその組合せを追加します。M2の複数browser目標や候補CPUを絞る場合は、設計と対応表も変更します。
+Both Humble and Jazzy baselines are mandatory. A full Cartesian product of extra axes is not required; vary one axis at a time from baseline. Add combinations when combination-specific bugs appear. If narrowing M2 browser goals or candidate CPUs, update the design and support table too.
 
-## 9. 性能・長時間試験
+## 9. Performance and soak tests
 
-M0の測定から、M1開始前に暫定budget、M2 release候補の計測前に正式budgetを決めます。未確定の数値、未実行の経路をrelease合格として扱いません。閾値はconfigから変更可能にし、変更理由をレビューします。
+Use M0 measurements to set provisional budgets before M1, and formal budgets before measuring an M2 release candidate. Undecided values and untested paths cannot count as passing release criteria. Make thresholds configurable and review reasons for changes.
 
-現行`tests/performance/`は、install済みGatewayを使うdirect/reliable/String echoを対象に、PR用15秒と週次1時間のprofileを持ちます。browserの単調clockによるRTT、接続時間、throughput、loss/reject/unexpected、外部`docker stats`によるCPU/RSS、process状態、cleanupをJSONへ記録します。既定のRTT等は初期測定用の緩いPoC budgetであり、正式な製品SLOではありません。
+Current `tests/performance/` measures installed direct/reliable/String echo using 15-second PR and one-hour weekly profiles. It records browser-monotonic-clock RTT, connection time, throughput, loss/reject/unexpected, external `docker stats` CPU/RSS, process state, and cleanup in JSON. Default RTT and similar limits are loose initial PoC budgets, not formal product SLOs.
 
-- workloadは小〜中サイズのmessageを基準とし、message型/encode後byte数/rate、1・4 peer、配送方式、network条件、ROS QoSを固定します。サイズ上限近傍と過負荷も含めます。大容量sensorの転送性能や断片化は初期版の必須目標に加えません。
-- CPU型・core数、RAM、OS、ROS/RMW、Node、browser、transport version、direct/relay、warm-up時間、計測時間、反復回数を結果に添えます。
-- p50/p95/p99 latency、接続時間、CPU、RSS、event loop遅延、native callback滞留、queue byte数、bufferedAmount、drop/reject数を記録します。
-- 片道latencyは時計同期と誤差を評価できる場合だけ使い、それ以外はRTTまたは同一clock内の区間時間で測定します。
-- bounded queueのassertionとRSSの長時間傾向を分けます。GCによる変動を考慮し、application queueが上限内でもnative滞留が増えるなら不合格です。
-- slow peerによる正常peerの劣化幅、control応答時間、最大RSS、反復接続後の資源増加、soak時間をbudgetへ含めます。
-- baselineとの比較は同じworkload・環境で行います。単発の最良値や負荷条件の異なる値から性能向上を宣言しません。
+- Fix workloads around small-to-medium messages, specifying type/encoded bytes/rate, one/four peers, delivery mode, network conditions, and ROS QoS. Include near-limit and overload cases. Large sensor transfer performance and fragmentation are not mandatory initial-version goals.
+- Record CPU model/core count, RAM, OS, ROS/RMW, Node, browser/transport versions, direct/relay path, warm-up, measurement duration, and repetition count with results.
+- Record p50/p95/p99 latency, connection time, CPU, RSS, event-loop delay, native callback backlog, queue bytes, bufferedAmount, and drops/rejections.
+- Use one-way latency only when clock synchronization and error can be assessed; otherwise use RTT or intervals within a single clock.
+- Separate bounded-queue assertions from long-term RSS trends. Account for GC variation; growing native backlog fails even when application queues stay within bounds.
+- Include degradation of healthy peers caused by slow peers, control-response latency, maximum RSS, resource growth after repeated connections, and soak duration in budgets.
+- Compare against baselines using the same workload and environment. Do not claim improvement from a single best run or different load conditions.
 
-## 10. 失敗・flaky・結果の扱い
+## 10. Failures, flaky tests, and results
 
-最初の失敗を保存し、自動retryの成功で必須ゲートを緑にしません。retryは調査として別結果に記録します。seed、受入れID、commit、環境、timeout、期待値/実測値、機密情報を除いた診断を残します。
+Preserve the first failure; an automatic retry succeeding does not turn a required gate green. Record investigative retries separately. Retain seeds, acceptance IDs, commit, environment, timeout, expected/observed values, and sanitized diagnostics.
 
-接続scenario開始前のreadiness確認は、共通deadline内の有限pollingとして扱えます。再試行対象を一時的な到達エラーへ限定し、最初の固定失敗分類、試行回数、経過時間を結果へ残します。HTTP異常、認証失敗、browser/Gateway停止等をretryで隠さず、readiness成立後の接続scenario自体は再実行しません。これは失敗した受け入れ試験全体のretryとは区別します。
+Readiness checks before connection scenarios may use bounded polling within a shared deadline. Limit retries to transient reachability errors and retain the first fixed failure classification, attempt count, and elapsed time. Do not hide HTTP errors, authentication failures, or browser/Gateway shutdowns with retries, and do not rerun the connection scenario after readiness succeeds. This differs from retrying an entire failed acceptance test.
 
-flaky testにはissue、担当、原因仮説、修正期限を付けます。隔離する場合もcoverageや必須受入れ条件から黙って外さず、同等の決定的な検証がなければ対応するreleaseゲートは未達です。認可・command期限・資源上限の失敗を許容済みとしてreleaseしません。
+Track flaky tests with an issue, owner, causal hypothesis, and fix deadline. Quarantining must not silently remove coverage or mandatory acceptance criteria; without equivalent deterministic validation, the corresponding release gate remains unmet. Do not release while treating authorization, command-expiry, or resource-limit failures as tolerated.
 
-結果は「合格」「不合格」「skip」「未実装」「未実施」を区別します。skipにも理由を付け、必須条件の合格へ数えません。対応表、coverage対象と除外、受入れIDごとの結果、残るリスクを同じcommitに結び付けます。PR CIの結果保持と失敗時の確認手順は§8に記載します。
+Distinguish **pass**, **fail**, **skip**, **not implemented**, and **not run**. Give reasons for skips and never count them as passing mandatory criteria. Tie the support matrix, coverage scope/exclusions, results per acceptance ID, and remaining risks to the same commit. Section 8 describes PR CI retention and failure diagnosis.
 
-## 11. 実装順序と完了条件
+## 11. Implementation order and completion criteria
 
-1. **M0**: runner/計測の評価、Unit/Contractと自前runtimeのC0/C1計測、独立ROS fixture、実browser双方向PoC、TURNを実装PR内で整備し、採用versionと基準環境を固定します。暫定性能budgetも整備します。
-2. **M1**: 型vector、mock/実ROS adapter共通試験、queue/epoch等の対象機能を拡張し、M0で導入した基準E2E・coverage・PRゲートを継続運用します。
-3. **M2**: lease/ACL/再接続、複数browser、network障害、nightly負荷、artifact検証、controller併用例のシステム試験を追加し、初期版の必須IDを満たします。
+1. **M0**: In implementation PRs, establish runner/measurement evaluation, Unit/Contract and first-party C0/C1 measurement, independent ROS fixtures, real-browser bidirectional PoC, and TURN. Pin selected versions and baseline environments, and establish provisional performance budgets.
+2. **M1**: Expand type vectors, shared mock/real ROS adapter tests, queues/epochs, and related features while continuing M0 baseline E2E, coverage, and PR gates.
+3. **M2**: Add lease/ACL/reconnect, multiple browsers, network faults, nightly load, artifact checks, and system tests for controller examples to meet mandatory initial-version IDs.
 
-各機能の実装PRで、その機能の正常・異常・境界試験と実行手順を追加します。「後の段階でテストする」を理由に実装済み機能の検証を省略しません。
+Each feature's implementation PR must add normal, failure, and boundary tests and execution steps. Do not defer validation of implemented functionality on the grounds that testing belongs to a later stage.
 
-現在のモジュール試作はROS不要で実行できます。Node.js 22（22.12以上、検証版22.22.2）、npm、lockfileの依存を使用します。build/typecheckの詳細は [CONTRIBUTING.md](CONTRIBUTING.md#local-checks)を参照してください。
+The current module prototype can run without ROS. Use Node.js 22 (22.12 or later; validated version 22.22.2), npm, and lockfile dependencies. See [CONTRIBUTING.md](CONTRIBUTING.md#local-checks) for build/typecheck details.
 
 ```bash
 npm ci --ignore-scripts
@@ -225,31 +225,31 @@ npm run test:transport
 npm run test:packaging:contract
 ```
 
-`npm test`はbuild後、Unitとモジュール結合試験を実行し、自前runtime全ファイルそれぞれのstatement / branch / function / line 100%を必須とします。テストは個別10秒のtimeoutを持ち、通常は数秒以内に完了します。型宣言`.d.ts`、外部依存、生成JS、テスト/harnessは分母に含めません。weriftの生成物は外部実装として対象外ですが、`npm run test:transport`で固定patchを含む実DataChannel送受信を検証します。
+`npm test` builds and runs unit and module integration tests, requiring 100% statement/branch/function/line coverage for every first-party runtime file. Individual tests have a 10-second timeout and usually finish within seconds. Type declarations (`.d.ts`), external dependencies, generated JS, and tests/harnesses are excluded. Generated Werift code is external, but `npm run test:transport` verifies actual DataChannel traffic including pinned patches.
 
-`npm run test:coverage`は計測設定の校正です。隔離したTypeScript fixtureで、source map、未実行分岐、未importファイル、複数processの計測統合を確認します。意図的にcoverage不足にした子processの失敗をassertし、親testが成功すれば校正合格です。製品コードの閾値は下げません。子processのtimeoutは既定30秒で、`COVERAGE_CALIBRATION_TIMEOUT_MS`に正整数のmillisecondを指定して上書きできます。全体はその12倍で打ち切り、待機中は5秒ごとに進捗を出します。
+`npm run test:coverage` calibrates measurement settings. Isolated TypeScript fixtures check source maps, unexecuted branches, unimported files, and merging across processes. It asserts failures in intentionally under-covered child processes; the parent passing means calibration passed. Product thresholds are not lowered. Child timeouts default to 30 seconds and can be overridden with positive integer milliseconds in `COVERAGE_CALIBRATION_TIMEOUT_MS`. The overall limit is twelve times that value, with progress every five seconds while waiting.
 
-| 現在の試験 | 対象IDの部分範囲 | 未検証の境界 |
+| Current tests | Partial acceptance-ID coverage | Unverified boundaries |
 | --- | --- | --- |
-| `tests/unit/config/` | CFG-01/02、CMD-03の設定衝突 | native境界はROS試験 |
-| `tests/unit/codec/` | TYPE-01、SEC-01のdescriptor/値/容量 | 全ROS型のnative互換性 |
-| `tests/unit/session/`、`router/` | AUTH、CMD、FLOW、SIZE、LIFE、PROの状態・wire境界 | 負荷、native滞留、SDK |
-| `tests/unit/ros/`、`app/` | descriptor、64bit/bytes、hash、起動/終了、実HTTPSと認証 | 多ユーザーidentity、全ROS型 |
-| `tests/unit/transport/`、`signaling/` | 3channel属性、SDP/message容量、待機中取消、認証前拒否、peer解放、HTTP仕様JSON/YAML一致、Swagger同origin assets、credential非掲載 | 実ネットワーク障害 |
-| `tests/contracts/module-flow.test.ts` | 設定→codec→guard→同期publish spy、codec→byte queue | 独立ROS観測は下記 |
-| `tests/ros/native.test.ts` | String/Twist、外部BridgeFrame、連鎖remap、実entity・終了 | QoS不一致、全ROS型、性能 |
-| `tests/browser/`、`tests/connection/` | install済みartifact、実wire/String/Twist/BridgeFrame、CMD-01/02、ACK-01、NET-01 UDP、再接続 | TURN TCP/TLS、UDP遮断、controller |
-| `tests/packaging/` | ament metadata、clean offline colcon build/test、install済みrun/launch、秘密値非同梱 | Debian/bloom公開、公式ROS build farm登録 |
-| `tests/performance/` | installed direct String echo、RTT/throughput/CPU/RSS、15秒回帰・1時間soak、cleanup | event-loop/native滞留、queue/buffer、slow peer、障害注入、正式SLO |
+| `tests/unit/config/` | CFG-01/02, CMD-03 configuration conflicts | Native boundaries covered by ROS tests |
+| `tests/unit/codec/` | TYPE-01, SEC-01 descriptors/values/capacity | Native compatibility of all ROS types |
+| `tests/unit/session/`, `router/` | AUTH, CMD, FLOW, SIZE, LIFE, PRO state/wire boundaries | Load, native backlog, SDK |
+| `tests/unit/ros/`, `app/` | Descriptors, 64-bit/bytes, hashes, startup/shutdown, real HTTPS/authentication | Multiple user identities, all ROS types |
+| `tests/unit/transport/`, `signaling/` | Three-channel properties, SDP/message capacity, pending cancellation, rejection before authentication, peer release, matching HTTP JSON/YAML specifications, same-origin Swagger assets, no credential exposure | Actual network faults |
+| `tests/contracts/module-flow.test.ts` | Configuration → codec → guard → synchronous publish spy; codec → byte queue | Independent ROS observation below |
+| `tests/ros/native.test.ts` | String/Twist, external BridgeFrame, chained remapping, real entities/shutdown | QoS mismatches, all ROS types, performance |
+| `tests/browser/`, `tests/connection/` | Installed artifacts, actual wire/String/Twist/BridgeFrame, CMD-01/02, ACK-01, NET-01 UDP, reconnects | TURN TCP/TLS, UDP blocking, controller |
+| `tests/packaging/` | ament metadata, clean offline colcon build/test, installed run/launch, no bundled secrets | Debian/bloom publication, official ROS build farm registration |
+| `tests/performance/` | Installed direct String echo, RTT/throughput/CPU/RSS, 15-second regression, one-hour soak, cleanup | Event-loop/native backlog, queue/buffers, slow peers, fault injection, formal SLOs |
 
-Linux Docker hostで、次のコマンドにより両distroのdirect / TURN UDPを検証します。
+On a Linux Docker host, verify both distributions' direct / TURN UDP connections with:
 
 ```bash
 npx playwright-core install chromium
 npm run test:connection
 ```
 
-対象ROS distroをsourceし、rclnodejs native addonを準備した環境では、次のコマンドでROS package外装を隔離検証します。CIはHumble/Jazzyの各ROS jobで接続試験用imageを再利用して実行します。
+After sourcing the target ROS distribution and preparing the rclnodejs native addon, verify ROS packaging in isolation with the commands below. CI reuses the connection-test image in each Humble/Jazzy ROS job.
 
 ```bash
 npm run test:packaging
@@ -257,14 +257,14 @@ npm run test:performance
 npm run test:soak
 ```
 
-環境の隔離、credential生成・削除、timeout、調査用のmatrix指定は[接続試験](tests/connection/README.md)、ROS単独試験は[ROS試験](tests/ros/README.md)、負荷設定は[性能harness](tests/performance/README.md)を参照してください。ローカルではHumble/Jazzy arm64 Fast DDS、Jazzy arm64 Cyclone DDS、Node 22.22.2、rclnodejs 2.2.0、Chromium 153.0.8010.12、coturn 4.6.3を検証しています。amd64はActions結果の確認後に検証済みへ昇格します。ブラウザSDKは未実装なのでraw clientを用います。
+See [connection tests](tests/connection/README.md) for environment isolation, credential creation/deletion, timeouts, and investigative matrix selection; [ROS tests](tests/ros/README.md) for standalone ROS checks; and the [performance harness](tests/performance/README.md) for load settings. Local validation covers Humble/Jazzy arm64 Fast DDS, Jazzy arm64 Cyclone DDS, Node 22.22.2, rclnodejs 2.2.0, Chromium 153.0.8010.12, and coturn 4.6.3. Promote amd64 to verified only after checking Actions results. Browser tests use raw clients because the SDK is not implemented.
 
-この範囲とpackage外装試験の成功は受け入れID全体の合格ではありません。QOS-01/02の不一致・latched履歴、NET-01のTCP/TLS・UDP遮断、SYS-01、性能の未計測指標と正式SLOは未検証または未実装です。Debian/bloom公開は当面対象外です。ACK-01は実ROS observerまで確認しますが、controller完了を意味しません。§8の全必須ゲートとrelease条件の達成とは区別します。
+Passing this scope and packaging tests does not mean every acceptance ID passes. QOS-01/02 mismatches/latched history, NET-01 TCP/TLS/UDP blocking, SYS-01, unmeasured performance indicators, and formal SLOs remain unverified or unimplemented. Debian/bloom publication is currently out of scope. ACK-01 verifies through an actual ROS observer, not controller completion. Distinguish these results from satisfying every mandatory gate and release condition in section 8.
 
-buildは`.runtime/build/`、coverageは`.runtime/coverage/`へ出力します。`coverage-summary.json`でfile単位の割合、`coverage-final.json`と`lcov.info`でstatement/branch位置を確認できます。測定artifactと調査記録はGitへ含めません。ROS/browser/TURNの具体的な起動手順・timeout・後始末は、各harnessのREADMEを参照してください。
+Build output goes to `.runtime/build/` and coverage to `.runtime/coverage/`. Inspect per-file percentages in `coverage-summary.json`, and statement/branch locations in `coverage-final.json` and `lcov.info`. Do not commit measurement artifacts or investigation notes. Each harness README gives detailed ROS/browser/TURN startup, timeout, and cleanup instructions.
 
-## 12. 採用評価の一次資料
+## 12. Primary references for tool evaluation
 
-- [Node.js test runner](https://nodejs.org/api/test.html): 採用runnerの実行・隔離・mock機能。
-- [c8](https://github.com/bcoe/c8): `--all`による未load fileの計測とsource map対応。採用versionのinclude/excludeとthresholdを校正します。
-- [Playwright browsers](https://playwright.dev/docs/browsers): 配布browserの種類と、製品版browserとの差を対応表へ反映します。
+- [Node.js test runner](https://nodejs.org/api/test.html): Runner execution, isolation, and mocking features.
+- [c8](https://github.com/bcoe/c8): Measurement of unloaded files with `--all` and source-map support. Calibrate includes/exclusions and thresholds for the selected version.
+- [Playwright browsers](https://playwright.dev/docs/browsers): Reflect distributed browser types and differences from product browsers in the support matrix.

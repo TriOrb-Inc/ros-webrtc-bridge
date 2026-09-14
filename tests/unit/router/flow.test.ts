@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { advertise, bytes, fixture } from './fixtures.js';
 
-test('PRO-02: hello/catalog→subscribe→ready後の新規sampleだけを配信', () => {
+test('PRO-02: deliver only new samples after hello/catalog, subscribe, and ready', () => {
   const f = fixture();
   f.control({ op: 'hello' });
   assert.equal(f.last().op, 'welcome');
@@ -16,7 +16,7 @@ test('PRO-02: hello/catalog→subscribe→ready後の新規sampleだけを配信
   f.emit('/out', { data: 'fresh' });
   assert.deepEqual(f.last(), { v: 1, op: 'message', stream_id: id, epoch: 'epoch-1', seq: '0', data: { data: 'fresh' } });
   assert.equal(f.output.at(-1)!.channel, 'ros.reliable.v1');
-  // 同一時刻の高rate sampleは送らず、次intervalのsampleを送る。
+  // Skip high-rate samples at the same time and send the next interval's sample.
   f.emit('/out', { data: 'rate limited' });
   assert.equal(f.last().seq, '0');
   f.state.now = 10;
@@ -29,7 +29,7 @@ test('PRO-02: hello/catalog→subscribe→ready後の新規sampleだけを配信
   f.router.close();
 });
 
-test('ACK-01: 非guard publishの型/seq/rateを検証してROS API成功のみack', () => {
+test('ACK-01: validate unguarded publication type/sequence/rate and acknowledge only ROS API success', () => {
   const f = fixture();
   const handle = advertise(f);
   const request = { op: 'publish', handle, epoch: 'epoch-1', seq: '0', data: { data: 'first' } };
@@ -55,7 +55,7 @@ test('ACK-01: 非guard publishの型/seq/rateを検証してROS API成功のみa
   f.router.close();
 });
 
-test('CMD-01/CMD-03: command arm/leaseと期限一致をwire越しに検証', () => {
+test('CMD-01/CMD-03: validate command arm/lease and exact expiry over the wire', () => {
   const f = fixture();
   const handle = advertise(f, '/cmd');
   f.control({ op: 'arm', id: 'a1', handle });
@@ -74,7 +74,7 @@ test('CMD-01/CMD-03: command arm/leaseと期限一致をwire越しに検証', ()
   f.router.close();
 });
 
-test('FLOW-01: backpressure時に先頭保持、control優先、latestは最終sample', () => {
+test('FLOW-01: retain the head under backpressure, prioritize control, and keep only the latest sample', () => {
   const f = fixture();
   f.control({ op: 'hello' });
   f.control({ op: 'subscribe', id: 's1', topic: '/latest' });
@@ -94,7 +94,7 @@ test('FLOW-01: backpressure時に先頭保持、control優先、latestは最終s
   f.router.close();
 });
 
-test('PRO-03: cache期限内のrequest副作用は1回、内容競合を拒否', () => {
+test('PRO-03: perform request effects once within cache TTL and reject conflicting contents', () => {
   const f = fixture();
   f.control({ op: 'hello' });
   const request = { op: 'subscribe', id: 'same', topic: '/out' };
@@ -105,7 +105,7 @@ test('PRO-03: cache期限内のrequest副作用は1回、内容競合を拒否',
   assert.equal(f.listeners.get('/out')!.size, 1);
   f.control({ ...request, topic: '/latest' });
   assert.equal(f.last().op, 'error');
-  // TTL一致でcacheを解放する。再発行されるIDは旧streamと異なる。
+  // Release the cache at exact TTL expiry; newly issued IDs differ from old streams.
   f.state.now = 1000;
   f.control(request);
   assert.equal(f.last().op, 'subscribed');
@@ -113,7 +113,7 @@ test('PRO-03: cache期限内のrequest副作用は1回、内容競合を拒否',
   f.router.close();
 });
 
-test('CMD-03/LIFE-01: peer間で共有guardのwriter排他と切断時の引継ぎを検証', () => {
+test('CMD-03/LIFE-01: validate shared-guard writer exclusivity across peers and handoff on disconnect', () => {
   const first = fixture();
   const second = fixture(options => ({ ...options, guard: first.guard, epoch: 'epoch-2' }));
   const firstHandle = advertise(first, '/cmd');

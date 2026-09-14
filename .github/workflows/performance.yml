@@ -12,7 +12,7 @@ on:
         type: choice
         options: [performance, soak]
   schedule:
-    # 長時間profileはdefault branchで週1回実行し、PRでは短い回帰profileを使う。
+    # Run the long profile weekly on the default branch; use the short regression profile for PRs.
     - cron: '37 2 * * 0'
 
 permissions:

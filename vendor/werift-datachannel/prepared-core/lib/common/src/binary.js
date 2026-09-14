@@ -74,7 +74,7 @@ class BitWriter {
 exports.BitWriter = BitWriter;
 class BitWriter2 {
     /**
-     * 各valueがオクテットを跨いではならない
+     * Each value must fit within a single octet.
      */
     constructor(
     /**Max 32bit */

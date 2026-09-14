@@ -4,10 +4,10 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 
 /**
- * 自己署名TLSのhealth endpointを有限時間pollします。
- * @param {string} url health endpoint URLです。例: https://127.0.0.1:17443/health。
- * @param {number} timeoutMs 全体期限です。例: 20000。
- * @returns {Promise<void>} HTTP 200で完了し、期限超過時は失敗します。
+ * Poll a self-signed TLS health endpoint with a finite deadline.
+ * @param {string} url Health endpoint URL, e.g. https://127.0.0.1:17443/health.
+ * @param {number} timeoutMs Overall deadline, e.g. 20000.
+ * @returns {Promise<void>} Resolves on HTTP 200 and fails on timeout.
  */
 async function waitForHealth(url, timeoutMs) {
   const end = Date.now() + timeoutMs;
@@ -27,10 +27,10 @@ async function waitForHealth(url, timeoutMs) {
 }
 
 /**
- * 正常な公開設定から、未導入interfaceを参照するfail-fast fixtureを生成します。
- * @param {string} sourcePath 元のconnection YAMLです。
- * @param {string} destinationPath 一時fixtureの出力pathです。
- * @returns {Promise<void>} 最初のstd_msgs型だけを存在しない型へ置換して完了します。
+ * Generate a fail-fast fixture referencing an uninstalled interface from valid public configuration.
+ * @param {string} sourcePath Original connection YAML path.
+ * @param {string} destinationPath Temporary fixture output path.
+ * @returns {Promise<void>} Replaces only the first std_msgs type with a nonexistent type.
  */
 async function writeMissingInterfaceConfig(sourcePath, destinationPath) {
   const source = await readFile(sourcePath, 'utf8');

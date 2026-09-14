@@ -348,14 +348,14 @@ class SCTP {
             value: false
         });
         // # reconfiguration
-        /**初期TSNと同じ値に初期化される単調に増加する数です. これは、新しいre-configuration requestパラメーターを送信するたびに1ずつ増加します */
+        /**A monotonically increasing number initialized to the initial TSN; incremented for each new re-configuration request parameter sent. */
         Object.defineProperty(this, "reconfigRequestSeq", {
             enumerable: true,
             configurable: true,
             writable: true,
             value: this.localTsn
         });
-        /**このフィールドは、incoming要求のre-configuration requestシーケンス番号を保持します. 他の場合では、次に予想されるre-configuration requestシーケンス番号から1を引いた値が保持されます */
+        /**Holds the re-configuration request sequence number of the incoming request; otherwise holds one less than the next expected request sequence number. */
         Object.defineProperty(this, "reconfigResponseSeq", {
             enumerable: true,
             configurable: true,
@@ -775,7 +775,7 @@ class SCTP {
                     ack.inboundStreams = this._inboundStreamsCount;
                     ack.initialTsn = this.localTsn;
                     this.setExtensions(ack.params);
-                    // cookie timestamp は秒単位の整数 (小数を混入させない)
+                    // The cookie timestamp is an integer number of seconds (no fractional part).
                     const time = Math.floor(Date.now() / 1000);
                     const cookieTime = Buffer.allocUnsafe(4);
                     cookieTime.writeUInt32BE(time, 0);

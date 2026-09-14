@@ -1,30 +1,30 @@
-# フロントエンド接続ガイド
+# Frontend integration guide
 
-このガイドは現行のHTTPS signalingとwire v1を使うブラウザ実装向けです。ブラウザSDKは未提供です。以下は接続の最小例とメッセージ例であり、アプリの認証管理、型生成、再接続管理、UI状態管理を実装したSDKではありません。
+This guide targets browser implementations using the current HTTPS signaling and wire v1. No browser SDK is provided. The examples cover minimal connection setup and messages, not a complete SDK with authentication management, type generation, reconnection management, or UI state handling.
 
-HTTP仕様は起動先の `/docs`、`/openapi.json`、`/openapi.yaml` で確認できます。RESTは `GET /health` と `POST /offer` だけです。Topic一覧、購読、publishはWebRTC DataChannelで交換します。Service、Action、MediaTrackはこの接続の対象外です。
+Inspect the running server's HTTP specification at `/docs`, `/openapi.json`, and `/openapi.yaml`. The only REST endpoints are `GET /health` and `POST /offer`. Topic catalogs, subscriptions, and publication use WebRTC DataChannels. Services, Actions, and MediaTracks are outside this connection's scope.
 
-## 接続先・認証・TLS
+## Endpoint, authentication, and TLS
 
-配備側から、HTTPS signaling URL、信頼できるTLS証明書、実行時発行のBearer credential、公開Topic/権限、対応するROS型とschemaを受け取ります。credential発行・更新サービスや多ユーザー認証はbridgeにありません。値をコード、URL、ログ、localStorage、sessionStorageへ保存せず、認証済みアプリの実行時memoryから渡してください。serverには `BRIDGE_CREDENTIAL` と権限allowlistを注入します。設定方法は[起動設定](../packages/bridge/src/app/README.md)を参照してください。
+Obtain the HTTPS signaling URL, a trusted TLS certificate, a runtime-issued Bearer credential, exposed Topics/permissions, and supported ROS types/schemas from the deployment. The bridge has no credential issuance/renewal service or multi-user authentication. Pass credentials from authenticated application memory; do not store them in code, URLs, logs, localStorage, or sessionStorage. The server receives `BRIDGE_CREDENTIAL` and permission allowlists through injection. See [startup settings](../packages/bridge/src/app/README.md).
 
-現在のserverはCORS headerとOPTIONS preflightに対応していません。フロントとbridgeでportが違えば別originです。ブラウザから直接呼ぶ場合は、フロントと同じHTTPS originのreverse proxyでsignalingへ中継してください。例えばフロントの `/bridge/offer` をbridgeの `/offer` へ対応させ、AuthorizationとContent-Typeを維持します。`mode: 'no-cors'` は代替になりません。Swaggerも中継する場合、UIが使う `/docs/*` と `/openapi.json` の絶対pathを同じoriginで解決できるルーティングが必要です。
+The current server does not implement CORS headers or OPTIONS preflight. Different frontend and bridge ports mean different origins. Use a reverse proxy on the frontend's HTTPS origin for browser calls: for example, map frontend `/bridge/offer` to bridge `/offer`, preserving Authorization and Content-Type. `mode: 'no-cors'` is not an alternative. If proxying Swagger too, route its absolute `/docs/*` and `/openapi.json` asset/specification paths on that origin.
 
-HTTPS proxyが中継するのはsignalingです。実際のDataChannelはICEで選ばれた経路を使うため、proxy到達だけで接続成立を保証しません。bridge側ICE server一覧は空でhost candidateを使用します。必要なTURN設定はブラウザの `RTCConfiguration` へ配備側が渡します。検証範囲は[接続試験](../tests/connection/README.md)を参照してください。
+An HTTPS proxy forwards signaling; actual DataChannels use the selected ICE path. Proxy reachability does not guarantee connectivity. The bridge has no ICE servers configured and uses host candidates. Deployment supplies any required TURN settings through browser `RTCConfiguration`. See [connection tests](../tests/connection/README.md) for verified scope.
 
-## 固定3 DataChannelと接続順
+## Three fixed DataChannels and connection order
 
-ブラウザをoffererにして、SDPを作る前に次の3本だけを作ります。`negotiated`、固定ID、`maxPacketLifeTime`は指定しません。reliable側の `maxRetransmits` も指定しません。
+The browser is the offerer. Create exactly these three channels before creating SDP. Do not specify `negotiated`, fixed IDs, or `maxPacketLifeTime`. Also omit `maxRetransmits` for reliable channels.
 
-| label | 作成option | 用途 |
+| Label | Creation options | Purpose |
 | --- | --- | --- |
-| `ros.control.v1` | `{ ordered: true }` | hello、購読・publisher管理、error、ack |
-| `ros.reliable.v1` | `{ ordered: true }` | deliveryがreliableのTopic data |
-| `ros.realtime.v1` | `{ ordered: false, maxRetransmits: 0 }` | deliveryがrealtimeのTopic data |
+| `ros.control.v1` | `{ ordered: true }` | hello, subscription/publisher management, errors, acknowledgements |
+| `ros.reliable.v1` | `{ ordered: true }` | Topic data with reliable delivery |
+| `ros.realtime.v1` | `{ ordered: false, maxRetransmits: 0 }` | Topic data with realtime delivery |
 
-受信handlerを先に登録し、`binaryType = 'arraybuffer'` にします。wireはUTF-8 JSONです。送信はstringでもUTF-8 bytesでも受理され、serverからの受信はbinaryになるため両形式を処理します。
+Register receive handlers first and set `binaryType = 'arraybuffer'`. Wire messages are UTF-8 JSON. Sending strings or UTF-8 bytes is supported; handle both forms on receipt because the server sends binary messages.
 
-次のTypeScriptはDOM型のあるブラウザ向けです。`offerUrl` はsame-origin proxy URL、`credential` は実行時memory、`onWire` は同期の受信処理、`onClosed` は画面側の状態破棄処理です。返却前にwelcomeを確認し、失敗時はHTTP要求とPeerConnectionを解放します。アプリは `onWire` でoperation別schema、epoch、stream/handle、配信channelを検証してください。
+The following TypeScript targets browsers with DOM types. `offerUrl` is a same-origin proxy URL, `credential` comes from runtime memory, `onWire` handles received messages synchronously, and `onClosed` discards UI state. The function waits for welcome before returning and releases the HTTP request and PeerConnection on failure. In `onWire`, the application must validate each operation's schema, epoch, stream/handle, and delivery channel.
 
 ```typescript
 type Wire = Record<string, unknown>;
@@ -47,7 +47,7 @@ export async function connectBridge(
   let rejectFailure!: (error: Error) => void;
   const failure = new Promise<never>((_, reject) => { rejectFailure = reject; });
 
-  // timerとHTTP要求を含め、接続単位で一度だけ解放する。
+  // Release each connection once, including its timer and HTTP request.
   const close = () => {
     if (closed) return;
     closed = true;
@@ -97,7 +97,7 @@ export async function connectBridge(
     await pc.setLocalDescription(await pc.createOffer());
     await until(() => pc.iceGatheringState === 'complete');
     if (closed || !pc.localDescription) throw new Error('missing_offer');
-    // trickle ICEではない。candidateを含む最終SDPを一度だけ送る。
+    // Non-trickle ICE: send the final SDP with candidates exactly once.
     const response = await fetch(offerUrl, {
       method: 'POST', signal: abort.signal,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` },
@@ -120,51 +120,51 @@ export async function connectBridge(
 }
 ```
 
-`onWire` は無限にmessageを蓄積せず、有限queueか最新値への集約で描画へ渡してください。callbackから例外が出るとこの例は接続全体を閉じます。`onClosed` は例外を投げず、画面の送信timer、未完了request、stream/handle/leaseを破棄します。画面のunmount時も返却された `close()` を呼びます。接続後の各control requestには別途応答timeoutを設けます。
+Do not accumulate messages indefinitely in `onWire`: use a bounded queue or coalesce to the latest value before rendering. An exception from the callback closes the entire connection in this example. `onClosed` must not throw; discard UI send timers, pending requests, and stream/handle/lease state there. Call the returned `close()` on unmount too. Add separate response deadlines to control requests after connection establishment.
 
-## hello、catalog、schema確認
+## hello, catalog, and schema checks
 
-controlへ送る最初のenvelopeは `{"v":1,"op":"hello"}` です。welcomeのcatalogには、そのcredentialに許可されたbindingだけが入ります。別のHTTP catalog endpointや追加のcatalog requestはありません。
+The first control envelope is `{"v":1,"op":"hello"}`. The welcome catalog contains only bindings authorized for that credential. There is no separate HTTP catalog endpoint or additional catalog request.
 
 ```json
 {"v":1,"op":"welcome","epoch":"epoch-example","catalog":[{"topic":"/example/state","ros_type":"std_msgs/msg/String","direction":"ros_to_web","delivery":"reliable","schema_id":"sha256:example"}]}
 ```
 
-ここ以降のID・epoch・hashは説明用の記号です。実際には直前の応答値を使います。Topic名は例であり、実行時catalogに存在する公開名を選択します。schema IDをこの例の文字列と比較してはいけません。
+IDs, epochs, and hashes below are explanatory placeholders. Use values from actual preceding responses. Topic names are examples; choose public names present in the runtime catalog. Do not compare schema IDs with the placeholder shown here.
 
-`ros_type`、`direction`、`delivery`、`schema_id` をアプリの対応表と照合します。catalogは完全なfield schema、QoS、rate、command guardやlease期間を含みません。それらは配備設定・ROS interfaceから事前に共有してください。現在はdescriptor/JSON Schemaを取得するHTTP APIもありません。未知のschema IDや型を名前だけで推測してpublishしないでください。schema IDはROS type hashではなく、codec/descriptor/非有限値policyの正規化hashです。[生成契約](../packages/bridge/src/app/README.md)を参照してください。
+Check `ros_type`, `direction`, `delivery`, and `schema_id` against the application's supported contracts. Catalog entries do not contain full field schemas, QoS, rates, command guards, or lease durations. Share those in advance through deployment configuration and ROS interfaces. There is currently no HTTP API for fetching descriptors/JSON Schemas. Do not guess an unknown schema ID or type from its name and publish. A schema ID is a normalized hash of codec/descriptor/non-finite-value policy, not a ROS type hash. See the [generation contract](../packages/bridge/src/app/README.md).
 
 ## subscribe → subscribed → ready → message
 
-control requestの `id` はsession内で再利用せず、応答の `id` と対応付けます。まずcatalogの `ros_to_web` Topicにsubscribeします。
+Do not reuse control request `id` values within a session; correlate responses by `id`. Start by subscribing to a catalog Topic with `ros_to_web` direction.
 
 ```json
 {"v":1,"op":"subscribe","id":"r1","topic":"/example/state"}
 ```
 
-control応答:
+Control response:
 
 ```json
 {"v":1,"op":"subscribed","id":"r1","stream_id":"stream-example","epoch":"epoch-example","schema_id":"sha256:example"}
 ```
 
-応答のepoch/schemaを確認し、streamの受信処理を登録してからcontrolへreadyを送ります。readyにrequest IDは付けません。
+Check the response epoch/schema and register stream handling before sending ready on control. Do not include a request ID in ready.
 
 ```json
 {"v":1,"op":"ready","stream_id":"stream-example"}
 ```
 
-ready自体への応答はありません。bindingのdeliveryに対応するdata channelにmessageが届きます。
+Ready has no acknowledgement. Messages arrive on the data channel selected by the binding's delivery mode.
 
 ```json
 {"v":1,"op":"message","stream_id":"stream-example","epoch":"epoch-example","seq":"1","data":{"data":"sample"}}
 ```
 
-stream ID、epoch、schemaに合うdata、channelを確認して描画します。ready前のsampleは自動再生されません。DDSからready後に届いた履歴sampleは配信され得るので、freshnessが必要ならROS messageのstamp等も評価してください。`unsubscribe` はcontrolへ `{"v":1,"op":"unsubscribe","id":"r2","stream_id":"stream-example"}` を送ります。応答は `unsubscribed` と同じ `id` です。解除したstreamへの遅着dataもUI側で捨てます。
+Validate the stream ID, epoch, schema-compatible data, and channel before rendering. Samples from before ready are not automatically replayed. DDS history delivered after ready can still be forwarded; evaluate ROS message timestamps when freshness matters. To unsubscribe, send `{"v":1,"op":"unsubscribe","id":"r2","stream_id":"stream-example"}` on control. The response is `unsubscribed` with the same `id`. The UI must discard late data for removed streams.
 
-## advertise、arm、publish
+## advertise, arm, and publish
 
-catalogの `web_to_ros` Topicへcontrolのadvertiseを送ります。
+Send advertise on control for a catalog Topic with `web_to_ros` direction.
 
 ```json
 {"v":1,"op":"advertise","id":"r3","topic":"/example/command"}
@@ -174,7 +174,7 @@ catalogの `web_to_ros` Topicへcontrolのadvertiseを送ります。
 {"v":1,"op":"advertised","id":"r3","handle":"handle-example","epoch":"epoch-example","schema_id":"sha256:example"}
 ```
 
-command guard付きbindingでは、さらにcontrolでarmを要求します。通常のguardなしbindingにarmを送ると拒否されるため、配備側の契約からguardの有無を把握してください。
+For a binding with a command guard, request arm on control next. Arming an ordinary unguarded binding is rejected, so obtain guard requirements from the deployment contract.
 
 ```json
 {"v":1,"op":"arm","id":"r4","handle":"handle-example"}
@@ -184,56 +184,56 @@ command guard付きbindingでは、さらにcontrolでarmを要求します。�
 {"v":1,"op":"lease","id":"r4","handle":"handle-example","epoch":"epoch-example","lease_id":"lease-example","expires_at":12345}
 ```
 
-publishは **bindingのdeliveryに対応するdata channel** に送ります。次は `std_msgs/msg/String` を使う例です。実際の型の全fieldを埋めてください。
+Send publish on **the data channel selected by the binding's delivery mode**. This example uses `std_msgs/msg/String`; populate every field of the actual type.
 
 ```json
 {"v":1,"op":"publish","handle":"handle-example","epoch":"epoch-example","lease_id":"lease-example","seq":"1","data":{"data":"new input"}}
 ```
 
-guardなしbindingでは `lease_id` を省略します。`seq` はcanonical uint64 decimal string（`"1"` 等）であり、JSON numberではありません。handle単位で単調増加させ、拒否された送信にも使用済みseqを再利用しません。`BigInt` で管理し `.toString()` して送ります。上限に達したら新しいhandleを作成します。任意の `id` もpublishに付与できますが、成功ackの照合はhandleとseqです。
+Omit `lease_id` for unguarded bindings. `seq` is a canonical uint64 decimal string such as `"1"`, not a JSON number. Increase it monotonically per handle, without reusing a sequence consumed by a rejected send. Manage it with `BigInt` and transmit `.toString()`. At the upper limit, create a new handle. Publication may include an optional `id`, but match successful acknowledgements by handle and seq.
 
-controlに返る成功ack:
+Successful acknowledgement on control:
 
 ```json
 {"v":1,"op":"published_to_ros","handle":"handle-example","seq":"1"}
 ```
 
-ackはROS publish API成功を示し、controllerの実行完了・停止完了やexactly-onceを保証しません。必要な完了状態は対応するtelemetryで確認します。publisherを破棄するにはcontrolへ `{"v":1,"op":"unadvertise","id":"r5","handle":"handle-example"}` を送り、`unadvertised` と同じ `id` を確認します。
+An acknowledgement means the ROS publish API succeeded; it does not guarantee controller execution/stopping completion or exactly-once delivery. Check corresponding telemetry for required completion state. To remove a publisher, send `{"v":1,"op":"unadvertise","id":"r5","handle":"handle-example"}` on control and verify `unadvertised` with the same `id`.
 
-## lease・再接続・送信queue
+## Leases, reconnection, and send queues
 
-`expires_at` は **bridgeの単調clockに属する値** です。ブラウザの `Date.now()` や `performance.now()` と直接比較できず、単純な差分を有効残時間として使えません。公開protocolにclock同期はありません。配備側とlease期間・更新方式を取り決め、期限判定とpublish直前の認可はserverを正とします。
+`expires_at` belongs to **the bridge's monotonic clock**. Do not directly compare it with browser `Date.now()` or `performance.now()`, or interpret their difference as remaining lease time. The public protocol has no clock synchronization. Agree on lease durations and renewal policy with deployment; the server is authoritative for expiry and authorization immediately before publication.
 
-再armは新しいrequest IDを使い、旧leaseを無効にします。lease更新、epoch変更、disconnect、画面停止時には古いcommandと未送信queueを捨て、新しい操作入力から送信します。同じhandleの再armでseqを巻き戻しません。再接続は新しいPeerConnection、3 DataChannel、hello/welcomeから始め、旧stream/handle/lease/epochを流用しません。control request cacheは有限で、IDの再送が常に重複排除されるとは保証しません。
+Re-arm with a fresh request ID; it invalidates the old lease. On lease renewal, epoch change, disconnect, or UI shutdown, discard old commands and unsent queues and send only newly entered input. Do not reset sequence numbers when re-arming the same handle. Reconnection starts from a new PeerConnection, three channels, and hello/welcome; never reuse old streams, handles, leases, or epochs. The control request cache is finite, so request retransmission is not guaranteed to be deduplicated forever.
 
-`RTCDataChannel.bufferedAmount` と配備側rate/容量上限を監視し、上限時に送信を抑制してください。単一envelopeはUTF-8で設定上限・16KiB・合意上限の最小値以内です。自動断片化はありません。古いcommandをreliable queueへためたり、切断後の再送queueへ入れたりしません。leaseの期限切れ自体はROSへ停止指令やゼロ速度をpublishしません。command guardとcontroller側watchdogは別の責務です。
+Monitor `RTCDataChannel.bufferedAmount` and deployment rate/capacity limits; suppress sending at the limit. Each UTF-8 envelope must fit the minimum of the configured limit, 16 KiB, and the negotiated limit. There is no automatic fragmentation. Do not accumulate old commands in reliable queues or reconnect replay queues. Lease expiry itself does not publish a stop command or zero velocity to ROS. The command guard and controller watchdog have separate responsibilities.
 
-## ROS JSONの表現
+## ROS JSON representation
 
-[codec仕様](../packages/bridge/src/codec/README.md)に従います。特にREST側の別GatewayのJSON表現を流用しないでください。
+Follow the [codec specification](../packages/bridge/src/codec/README.md). In particular, do not reuse another REST Gateway's JSON representation.
 
-| ROS値 | DataChannel上のJSON |
+| ROS value | DataChannel JSON |
 | --- | --- |
-| int64 / uint64 | canonical decimal string。`"42"`、int64のみ`"-42"`。uint64は負数不可。`"42n"`、先頭ゼロ、指数表記は不可 |
-| uint8列 | padding付き標準base64 string。通常の数値配列ではない |
-| nested object | 全field必須、未知field不可 |
-| 固定配列 / bounded配列 | 指定長 / 上限を守る |
-| float32 | binary32へ丸められる。overflow拒否 |
-| 非有限float | 許可されたtelemetryのみ `"NaN"` / `"Infinity"` / `"-Infinity"`。commandは不可 |
+| int64 / uint64 | Canonical decimal strings: `"42"`, and `"-42"` only for int64. uint64 cannot be negative. No `"42n"`, leading zeroes, or exponent notation |
+| uint8 sequence | Padded standard base64 string, not an ordinary numeric array |
+| Nested object | Every field required; unknown fields rejected |
+| Fixed/bounded array | Exact length / upper bound enforced |
+| float32 | Rounded to binary32; overflow rejected |
+| Non-finite float | `"NaN"`, `"Infinity"`, or `"-Infinity"` only for permitted telemetry; forbidden for commands |
 
-Nodeの `Buffer` を使うserver codecをブラウザSDKとしてそのままimportできるとは扱いません。ブラウザ側に型と変換を実装し、独立した期待値で互換性を確認してください。
+Do not treat the Node `Buffer`-based server codec as a directly importable browser SDK. Implement browser-side types/conversion and check interoperability against independent expected values.
 
-## 問題の切り分け
+## Troubleshooting
 
-| 症状 | 確認点 |
+| Symptom | Check |
 | --- | --- |
-| fetchがCORS/TLSエラー | 証明書の信頼・host一致、same-origin proxy。OPTIONSは現状未対応 |
-| HTTP 401 / 415 | Bearer値の実行時注入、Content-Typeが正確に `application/json` か |
-| HTTP 400 | JSON未知field、offer型、SDPがapplicationのみか。errorは匿名化される |
-| HTTP 408 / 413 / 503 | body読取期限 / body byte上限 / pending交渉上限 |
-| answer後にchannelが開かない | 最終SDPのcandidate、ICE経路、3本のlabel/配送属性、negotiation timeout |
-| welcomeにTopicがない | 公開設定、credentialのsubscribe allowlist / publish scope |
-| subscribed後にdataがない | ready、delivery channel、ROS publisher・QoS、stream/epoch、schema、rate |
-| command拒否 | direction、schema、guard有無、lease、epoch、seq単調性、rate、channel、容量 |
+| CORS/TLS fetch error | Certificate trust/host match and same-origin proxy; OPTIONS is currently unsupported |
+| HTTP 401 / 415 | Runtime Bearer injection; Content-Type must be exactly `application/json` |
+| HTTP 400 | Unknown JSON fields, offer type, application-only SDP; errors are anonymized |
+| HTTP 408 / 413 / 503 | Body read deadline / byte limit / concurrent pending negotiations |
+| Channels stay closed after answer | Final SDP candidates, ICE path, three channel labels/delivery attributes, negotiation timeout |
+| Topic missing from welcome | Exposed configuration and credential subscribe allowlist / publish scopes |
+| No data after subscribed | ready, delivery channel, ROS publisher/QoS, stream/epoch, schema, rate |
+| Command rejected | Direction, schema, guard requirement, lease, epoch, monotonic seq, rate, channel, capacity |
 
-wire errorはcontrolの `error` で受け取り、公開 `code` は一律 `request_rejected` です。内部のlease失効・writer競合等の理由文字列は公開されません。`id` がある場合は該当requestを解放し、`id` のない非同期errorにはstream/接続状態を再確認する方針を設けます。HTTP/ICE/DTLS/SCTP/wire/ROSを分けて観測し、credential、SDP、ICE candidate、payloadを通常ログへ出さないでください。再現可能なraw clientは[ブラウザ試験](../tests/browser/scenario.ts)、正本wire仕様は[Session router](../packages/bridge/src/router/README.md)にあります。
+Wire errors arrive as control `error`; the public `code` is always `request_rejected`. Internal reasons such as lease expiry and writer conflicts are not exposed. If `id` is present, resolve the corresponding pending request as failed; for asynchronous errors without `id`, define a policy to recheck stream/connection state. Observe HTTP/ICE/DTLS/SCTP/wire/ROS separately. Do not put credentials, SDP, ICE candidates, or payloads in normal logs. See the reproducible raw client in the [browser test](../tests/browser/scenario.ts) and the authoritative wire specification in [Session router](../packages/bridge/src/router/README.md).

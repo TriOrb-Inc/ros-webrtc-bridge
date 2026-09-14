@@ -1,35 +1,35 @@
 import type { RosQos } from '../config/types.js';
 import type { RosBackend } from './types.js';
 
-/** DDSの代替保証をしないin-memory backend。入力: なし。出力: backendと観測用state。 */
+/** In-memory backend that provides no DDS guarantees. No input; returns a backend and observable state. */
 export class MockRosBackend implements RosBackend {
   readonly published: Array<{ type: string; topic: string; qos: RosQos; native: unknown }> = [];
   readonly subscriptions: Array<{ type: string; topic: string; qos: RosQos; callback: (native: unknown) => void }> = [];
   closed = false;
   spinning = false;
 
-  /** publish観測器を作る。入力: 型名,ROS名,QoS。出力: 同期publisher。 */
+  /** Create a publish observer. Inputs: type name, ROS name, QoS; returns a synchronous publisher. */
   createPublisher(type: string, topic: string, qos: RosQos): { publish(native: unknown): void } {
     return {
-      // native値はTopicRosAdapterで検証・copy済み。spyはDDS deliveryを推測しない。
+      // TopicRosAdapter has validated and copied native values. The spy makes no assumptions about DDS delivery.
       publish: (native) => { this.published.push({ type, topic, qos, native }); },
     };
   }
-  /** subscription登録。入力: 型名,ROS名,QoS,callback。出力: void。 */
+  /** Register a subscription. Inputs: type name, ROS name, QoS, callback; returns void. */
   createSubscription(type: string, topic: string, qos: RosQos, callback: (native: unknown) => void): void {
     this.subscriptions.push({ type, topic, qos, callback });
   }
-  /** callback配送可能な状態を記録する。入力: なし。出力: void。 */
+  /** Record that callbacks can receive deliveries. No input; returns void. */
   spin(): void { this.spinning = true; }
-  /** 登録を解放する。入力: なし。出力: void。 */
+  /** Release registrations. No input; returns void. */
   close(): void {
     this.closed = true;
     this.spinning = false;
     this.subscriptions.length = 0;
   }
-  /** 独立した対向node相当の入力を注入する。入力: '/out',{data:'hello'}。出力: void。 */
+  /** Inject input representing an independent peer node. Inputs: '/out',{data:'hello'}; returns void. */
   emit(topic: string, native: unknown): void {
-    // ここではQoSを模擬しない。実DDSの適合はDocker integrationで確認する。
+    // QoS is not simulated here. Validate actual DDS compatibility through Docker integration tests.
     for (const subscription of this.subscriptions) {
       if (subscription.topic === topic) subscription.callback(native);
     }

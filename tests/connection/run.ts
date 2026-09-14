@@ -8,7 +8,7 @@ import { verifyBrowserConnection } from '../browser/connection.js';
 import { connectionFailure, parseContainerState, type ContainerState } from './diagnostics.js';
 import { command, parseTimeoutMs } from './process.js';
 
-/** HTTPS readinessをdeadlineまで待つ。入力URL/timeout、出力なし。例: /health=200 → 正常終了。 */
+/** Wait for HTTPS readiness until a deadline. Inputs: URL/timeout; no return value. /health=200 succeeds. */
 async function healthy(url: string, timeoutMs: number): Promise<void> {
   const end = Date.now() + timeoutMs;
   while (Date.now() < end) {
@@ -28,13 +28,13 @@ async function healthy(url: string, timeoutMs: number): Promise<void> {
 
 type RmwImplementation = 'rmw_fastrtps_cpp' | 'rmw_cyclonedds_cpp';
 
-/** 1 distro/RMWの専用networkでinstalled GatewayとROS/browserを接続する。入力matrix、出力匿名結果。 */
+/** Connect the installed Gateway, ROS, and browser on a dedicated network for one distro/RMW. Input: matrix entry; returns anonymized results. */
 async function verify(distro: 'humble' | 'jazzy', relay: boolean, rmw: RmwImplementation) {
   const directory = await mkdtemp(resolve('.runtime', `connection-${distro}-`));
   const input = join(directory, 'inputs');
   await mkdir(input, { mode: 0o700 });
   const suffix = randomBytes(5).toString('hex');
-  // credential・鍵・TURN設定は一時mountに限定し、成否を問わず削除する。
+  // Keep credentials, keys, and TURN configuration in temporary mounts; delete them on both success and failure.
   const credential = randomBytes(32).toString('hex');
   const network = `bridge-test-${suffix}`;
   const gateway = `bridge-gateway-${suffix}`, peer = `bridge-peer-${suffix}`, turn = `bridge-turn-${suffix}`;
@@ -43,7 +43,7 @@ async function verify(distro: 'humble' | 'jazzy', relay: boolean, rmw: RmwImplem
   const run = (name: string, executable: string, args: string[], extra = {}) => command(name, executable, args, { directory, ...extra });
   const heartbeat = setInterval(() => console.log(`connection test: ${distro} verification running`), 4000);
   try {
-    // image buildはnetwork外で実施し、試験graphは外部へ出られない専用networkに置く。
+    // Build images outside the network; place the test graph on a dedicated network without external access.
     const image = `ros-webrtc-bridge-test:${distro}-${rmw.replace('rmw_', '').replace('_cpp', '')}`;
     const base = distro === 'humble' ? 'ros:humble-ros-base-jammy' : 'ros:jazzy-ros-base-noble';
     const platform = process.env.CONNECTION_PLATFORM;
@@ -57,7 +57,7 @@ async function verify(distro: 'humble' | 'jazzy', relay: boolean, rmw: RmwImplem
     await chmod(join(input, 'key.pem'), 0o600);
     networkCreated = true;
     await run('network', 'docker', ['network', 'create', '--internal', '--label', `ros-webrtc-test=${suffix}`, network]);
-    // DDS discoveryはこのnetwork内、domain/namespaceも試験専用にする。
+    // Confine DDS discovery to this network and use test-specific domains and namespaces.
     const rosArgs = ['--network', network, '--label', `ros-webrtc-test=${suffix}`, '--env', 'ROS_DOMAIN_ID=73',
       '--env', 'ROS_TEST_TIMEOUT_SECONDS=360', '--env', `RMW_IMPLEMENTATION=${rmw}`];
     owned.push(peer);
@@ -79,7 +79,7 @@ async function verify(distro: 'humble' | 'jazzy', relay: boolean, rmw: RmwImplem
     const packagePrefix = await run('package-prefix', 'docker', ['exec', gateway, 'bash', '-lc',
       'source /opt/ros/${ROS_DISTRO}/setup.bash && source /bridge/package_workspace/install/setup.bash && ros2 pkg prefix ros_webrtc_bridge']);
     assert.ok(packagePrefix.startsWith('/bridge/package_workspace/install/'), 'gateway package must resolve from the install prefix');
-    // Gatewayと同じinstall treeのrclnodejs addonを別contextで初期化し、要求RMWが実際にloadされることを確認する。
+    // Initialize the Gateway install tree's rclnodejs addon in a separate context and verify the requested RMW actually loads.
     const gatewayRmw = await run('rmw-identifier-gateway', 'docker', ['exec', gateway, 'bash', '-lc',
       'source /opt/ros/${ROS_DISTRO}/setup.bash && source /bridge/test_interfaces/install/setup.bash && source /bridge/package_workspace/install/setup.bash && node --input-type=module --eval \'import rclnodejs from "/bridge/package_workspace/install/ros_webrtc_bridge/lib/ros_webrtc_bridge/node_modules/rclnodejs/index.js"; await rclnodejs.init(); const node = rclnodejs.createNode("ros_webrtc_bridge_rmw_probe"); console.log(node.getRMWImplementationIdentifier()); node.destroy(); rclnodejs.shutdown();\'']);
     assert.equal(gatewayRmw, rmw, 'Gateway rclnodejs RMW differs from the requested implementation');
@@ -91,7 +91,7 @@ async function verify(distro: 'humble' | 'jazzy', relay: boolean, rmw: RmwImplem
     assert.equal(nodeArchitecture, expectedArchitecture, 'container Node architecture differs from expectation');
     const reports: unknown[] = [];
     try {
-      // まずdirect経路で独立ROS nodeとの全利用経路を確認する。
+      // First verify every usage path with an independent ROS node over a direct connection.
       reports.push(await verifyBrowserConnection({ url, credential }));
       if (relay) {
         const turnUser = randomBytes(12).toString('hex'), turnCredential = randomBytes(32).toString('hex');
@@ -102,18 +102,18 @@ async function verify(distro: 'humble' | 'jazzy', relay: boolean, rmw: RmwImplem
         await run('turn-start', 'docker', ['run', '--init', '-d', '--user', '0:0', '--name', turn, '--network', network,
           '--label', `ros-webrtc-test=${suffix}`, '-v', `${input}:/run/bridge:ro`, 'coturn/coturn:4.6.3', '-c', '/run/bridge/turn.conf']);
         const address = await run('turn-address', 'docker', ['inspect', '--format', '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}', turn]);
-        // fallbackを許さず選択candidateがrelayであることをbrowser helper内でassertする。
+        // Disallow fallback: the browser helper asserts that the selected candidate is relay.
         reports.push(await verifyBrowserConnection({ url, credential, relayOnly: true,
           iceServers: [{ urls: `turn:${address}:3478?transport=udp`, username: turnUser, credential: turnCredential }] }));
       }
     } catch (error) {
-      // containerの限定状態と固定失敗分類だけを公開可能な結果へ残し、生logや接続情報は含めない。
+      // Retain only restricted container state and fixed failure classifications in publishable results, excluding raw logs and connection details.
       let gatewayState: ContainerState = { available: false };
       try {
         const state = await run('gateway-state', 'docker', ['inspect', '--format',
           '{{.State.Running}} {{.State.ExitCode}} {{.State.OOMKilled}}', gateway]);
         gatewayState = parseContainerState(state);
-      } catch { /* cleanupを続け、診断取得失敗で元の接続失敗を置き換えない。 */ }
+      } catch { /* Continue cleanup; diagnostic collection failure must not replace the original connection failure. */ }
       await writeFile(join(directory, 'result.json'), JSON.stringify({ distro, status: 'FAIL',
         failure: connectionFailure(error), gateway: gatewayState }, null, 2)).catch(() => {});
       throw error;
@@ -128,7 +128,7 @@ async function verify(distro: 'humble' | 'jazzy', relay: boolean, rmw: RmwImplem
     console.log(`connection test: ${distro} PASS`);
     return result;
   } finally {
-    // 診断にSDP/credentialを出さないgatewayのログだけを取得する。
+    // Collect only Gateway logs that exclude SDP and credentials from diagnostics.
     const cleanupErrors: unknown[] = [];
     for (const name of owned.reverse()) {
       try {
@@ -138,7 +138,7 @@ async function verify(distro: 'humble' | 'jazzy', relay: boolean, rmw: RmwImplem
         await run(`${name}-remove`, 'docker', ['rm', '-f', name]);
       } catch (error) { cleanupErrors.push(error); }
     }
-    // 一つのcleanup失敗で他containerや秘密ファイルの後始末を飛ばさない。
+    // A cleanup failure must not skip cleanup of other containers or secret files.
     if (networkCreated) {
       try {
         const existing = await run('network-exists', 'docker', ['network', 'ls', '-q', '--filter', `name=^${network}$`, '--filter', `label=ros-webrtc-test=${suffix}`]);
@@ -150,7 +150,7 @@ async function verify(distro: 'humble' | 'jazzy', relay: boolean, rmw: RmwImplem
   }
 }
 
-/** 指定matrixを実行する。環境DISTROS/TURN/RMW、出力は匿名集計JSONと終了code。 */
+/** Run the selected matrix. Inputs: DISTROS/TURN/RMW environment; outputs: anonymized aggregate JSON and exit code. */
 async function main(): Promise<void> {
   await mkdir('.runtime', { recursive: true });
   const distros = (process.env.CONNECTION_DISTROS ?? 'humble,jazzy').split(',');
@@ -158,7 +158,7 @@ async function main(): Promise<void> {
   const relay = process.env.CONNECTION_TURN !== '0';
   const rmw = process.env.CONNECTION_RMW_IMPLEMENTATION ?? 'rmw_fastrtps_cpp';
   assert.ok(rmw === 'rmw_fastrtps_cpp' || rmw === 'rmw_cyclonedds_cpp');
-  // pulling中も進捗とtimeoutを管理する。TURNは独立したBSDライセンスの試験サービス。
+  // Manage progress and deadlines while pulling. TURN is an independent BSD-licensed test service.
   if (relay) await command('turn-pull', 'docker', ['pull', 'coturn/coturn:4.6.3'], { directory: resolve('.runtime'), timeoutMs: 180000 });
   const results = [];
   for (const distro of distros) results.push(await verify(distro as 'humble' | 'jazzy', relay, rmw));

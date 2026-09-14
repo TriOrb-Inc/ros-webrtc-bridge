@@ -17,7 +17,7 @@ export interface ConnectionFailure {
   readonly cleanupFailed?: boolean;
 }
 
-/** docker inspectの限定出力を匿名状態へ変換する。入力例: true 0 false、出力: running/exit/OOM。 */
+/** Convert restricted docker inspect output to anonymized state. Example: true 0 false returns running/exit/OOM. */
 export function parseContainerState(value: string): ContainerState {
   const match = /^(true|false)\s+(\d+)\s+(true|false)$/.exec(value.trim());
   if (!match) return Object.freeze({ available: false });
@@ -26,7 +26,7 @@ export function parseContainerState(value: string): ContainerState {
   return Object.freeze({ available: true, running: match[1] === 'true', exitCode, oomKilled: match[3] === 'true' });
 }
 
-/** 未加工例外をURLやpayloadを含まない固定診断へ変換する。入力: browser/接続例外、出力: 匿名分類。 */
+/** Convert raw exceptions to fixed diagnostics without URLs or payloads. Input: browser/connection exception; returns anonymized classification. */
 export function connectionFailure(error: unknown): ConnectionFailure {
   if (error instanceof BrowserConnectionError) {
     const stage = error.phase === 'health' ? 'browser_health' : error.phase === 'connections' ? 'browser_connection' : 'connection';

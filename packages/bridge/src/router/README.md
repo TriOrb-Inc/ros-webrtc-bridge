@@ -1,40 +1,40 @@
 # Session router
 
-現状は設定・codec・共有CommandGuard・DeliveryQueueを1 peerのwire操作へ接続するモジュールです。ROSとDataChannelは注入し、認証・signaling・native entity生成は呼出元が担当します。
+This module connects configuration, codecs, a shared CommandGuard, and DeliveryQueue to one peer's wire operations. ROS and DataChannels are injected; authentication, signaling, and native entity creation belong to the caller.
 
-`SessionRouter`は`config`、`bindings: [{binding, codec, schemaId}]`、全peerで共有する`guard`、接続ごとに新しい`epoch`、副作用のない単調`clock`、`ros`、`send`を受け取ります。bindingは同じconfigのTopicBindingを使います。`ros.subscribe(publicName, callback)`はlistener解除関数を返し、`ros.publish(publicName, native)`は同期APIです。adapter自体のstart/closeはprocess所有です。
+`SessionRouter` accepts `config`, `bindings: [{binding, codec, schemaId}]`, a `guard` shared by all peers, a fresh per-connection `epoch`, a side-effect-free monotonic `clock`, `ros`, and `send`. Bindings must be TopicBindings from that same configuration. `ros.subscribe(publicName, callback)` returns an unsubscribe function; `ros.publish(publicName, native)` is synchronous. The process owns adapter startup and shutdown.
 
-command bindingのcodecは`createCodec(descriptor, {allowNonFinite: false})`で構築します。型registryとcodec生成は起動側の責務です。同じROS型をtelemetryにも使う場合でも、command側は非有限値を拒否するcodecを渡してください。
+Construct command-binding codecs using `createCodec(descriptor, {allowNonFinite: false})`. The startup layer owns type registries and codec creation. Even when the same ROS type is used for telemetry, the command codec must reject non-finite values.
 
-`authorize(binding, 'subscribe' | 'publish')`は各操作と配信/publish直前に評価し、省略は拒否です。backpressureで待機したtelemetryも`flush()`で送信する前に再評価します。認証失効時はtransport側から`router.close()`を呼びます。CommandGuard自身のpolicyとrouterのpolicyを同じ認証済みidentityに対応付ける必要があります。
+`authorize(binding, 'subscribe' | 'publish')` is evaluated for each operation and immediately before delivery/publication. Omitting it denies access. `flush()` reauthorizes telemetry delayed by backpressure immediately before transmission. On authentication revocation, the transport must call `router.close()`. CommandGuard and router policies must refer to the same authenticated identity.
 
-wire入力は`receive(channel, Uint8Array)`、送信buffer低水位時は`flush()`、切断時は`close()`を呼びます。送信先は固定3channelです。`send(channel, bytes)`は同期的に受理できた場合だけ`true`を返します。`false`ならqueue先頭を保持します。controlを優先し、controlが詰まった間はdataを送りません。
+Call `receive(channel, Uint8Array)` for wire input, `flush()` when the send buffer reaches its low watermark, and `close()` on disconnection. Output uses the three fixed channels. `send(channel, bytes)` returns `true` only when accepted synchronously; `false` retains the queue head. Control has priority, and blocked control prevents data transmission.
 
-transportは`receive()`または`flush()`の後に読み取り専用`isClosed`を確認します。routerがcontrol溢れ等で閉鎖した場合、PeerConnectionも閉じてprocess側のpeer登録を解放してください。`isClosed`はcleanup開始時にtrueになり、listener解放で例外が起きてもtrueを維持します。
+After `receive()` or `flush()`, the transport checks read-only `isClosed`. A router closed by control overflow or another fatal condition must also close the PeerConnection and release the process's peer registration. `isClosed` becomes true when cleanup starts and stays true even if listener cleanup throws.
 
-任意の`onClosed`は全listener/handle/queue/cacheのcleanup後に1回だけ呼びます。listener解放失敗を集約してthrowする場合も、その前に通知します。ROS callback起点の閉鎖もこの通知で回収できます。trusted callbackは例外を投げない契約とし、Endpoint側は`queueMicrotask`で自身のcloseを予約して相互closeの再入を避けてください。
+Optional `onClosed` is called once after all listeners, handles, queues, and caches are cleaned up, before aggregated cleanup failures are thrown. This trusted callback must not throw. The Endpoint schedules its own close with `queueMicrotask` to avoid re-entrant closure between components.
 
-## wire v1
+## Wire v1
 
-すべてのenvelopeに`v: 1`と`op`を含めます。hello/ready以外のcontrolにはsession内request識別子`id`が必要です。
+Every envelope contains `v: 1` and `op`. Control operations other than hello/ready require a session-local request identifier `id`.
 
-| channel | 入力opとfield | 応答 |
+| Channel | Input operation and fields | Response |
 | --- | --- | --- |
-| control | `hello` | `welcome`、epoch、許可されたcatalog |
+| control | `hello` | `welcome`, epoch, authorized catalog |
 | control | `subscribe`: id, topic | `subscribed`: id, stream_id, epoch, schema_id |
-| control | `ready`: stream_id | 応答なし。以後に受信した新規sampleだけ配信 |
+| control | `ready`: stream_id | No response; only newly received samples are delivered afterward |
 | control | `unsubscribe`: id, stream_id | `unsubscribed`: id |
 | control | `advertise`: id, topic | `advertised`: id, handle, epoch, schema_id |
 | control | `arm`: id, handle | `lease`: id, handle, epoch, lease_id, expires_at |
 | control | `unadvertise`: id, handle | `unadvertised`: id |
-| binding指定のdata channel | `publish`: handle, epoch, seq, data、commandならlease_id | controlの`published_to_ros`: handle, seq |
+| Binding-selected data channel | `publish`: handle, epoch, seq, data; lease_id for commands | `published_to_ros` on control: handle, seq |
 
-ROS sampleはbinding指定data channelの`message`でstream_id、epoch、uint64 decimal seq、codec dataを運びます。data publishは任意の`id`も受理しますが、ack対応はhandleとseqで行います。不正operation、方向、所有handle、型値、channel、envelopeサイズを拒否し、内部例外本文を含めない`error`をcontrolへ返します。ackはROS API成功だけを意味し、controller完了ではありません。
+ROS samples use `message` on the binding's data channel, carrying stream_id, epoch, uint64 decimal seq, and codec data. Data publication also accepts an optional `id`, but acknowledgements are matched by handle and seq. Invalid operations, directions, owned handles, values, channels, and envelope sizes are rejected with a control `error` that excludes internal exception text. Acknowledgements establish only ROS API success, not controller completion.
 
-## 上限と寿命
+## Limits and lifetime
 
-`limits.maxHandles`、`maxRequests`、`requestTtlMs`、`maxControlRateHz`は正の安全整数を必須指定します。maxHandlesはsubscriptionとpublisherの合計です。control rateは1秒固定windowの件数上限です。Topic rateはmaxRateHz由来の最小間隔で、telemetryは間引き、publishは拒否します。再接続時の操作・commandの再送は行いません。
+`limits.maxHandles`, `maxRequests`, `requestTtlMs`, and `maxControlRateHz` must be positive safe integers. maxHandles counts subscriptions and publishers together. Control rate uses a fixed one-second window. Topic rate uses the minimum interval derived from maxRateHz: telemetry is sampled down and excess publication is rejected. Reconnection does not replay operations or commands.
 
-単一messageはmin(config上限,16KiB)、送信待ちはconfigのpeer queue bytes、control待機件数はmaxRequestsです。cacheは別途同じpeer queue bytesを上限にrequest本文(UTF-16)とresponse bytesを計上します。したがってqueueとcacheの合計は最大その2倍です。cacheは件数と寿命でも制限し、同じid・同じ内容を再実行せず応答を再利用します。同じid・異なる内容は拒否します。cache期限後のrequest ID再送を同一操作として保証しません。
+Single messages are limited to min(configured limit, 16 KiB); pending output is bounded by configured peer queue bytes and pending control entries by maxRequests. The cache separately uses the same peer-byte limit to account for request text (UTF-16) and response bytes. Queue plus cache can therefore total twice that byte limit. The cache also bounds count and lifetime. The same ID with identical content reuses a response without repeating execution; the same ID with different content is rejected. Reusing an ID after cache expiration is not guaranteed to identify the same operation.
 
-reliable streamのqueue超過では当該listenerとqueueを解放します。realtimeは最新値へ置換し、残byte不足ならdropします。control応答を保持できない場合はpeerを閉じて資源を解放します。request失敗時に成功応答は返しません。process全体budget、DDS/native callback滞留、token発行とrequest retry SDKは別途統合が必要です。
+Reliable stream overflow releases its listener and queue. Realtime replaces old data with the latest value and drops it if insufficient bytes remain. If a control response cannot be retained, the peer closes and releases resources. Failed requests receive no success response. Process-wide budgets, native callback backlog, token issuance, and a request-retry SDK require further integration.
