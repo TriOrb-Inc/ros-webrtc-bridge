@@ -1,0 +1,60 @@
+version: 1
+robot_id: connection-test
+limits:
+  max_peers: 4
+  max_message_bytes: 16384
+  max_peer_queue_bytes: 262144
+  max_channel_buffered_bytes: 65536
+topics:
+  /input:
+    ros_topic: /bridge_test/in
+    ros_type: std_msgs/msg/String
+    direction: web_to_ros
+    ros_qos: { reliability: reliable, durability: volatile, history: keep_last, depth: 10 }
+    delivery: reliable
+    max_rate_hz: 20
+    queue: { policy: fifo, max_messages: 16 }
+    access: { publish_scope: integration, exclusive_writer: false }
+  /output:
+    ros_topic: /bridge_test/out
+    ros_type: std_msgs/msg/String
+    direction: ros_to_web
+    ros_qos: { reliability: reliable, durability: volatile, history: keep_last, depth: 10 }
+    delivery: reliable
+    max_rate_hz: 20
+    queue: { policy: fifo, max_messages: 16 }
+  /command:
+    ros_topic: /bridge_test/cmd_vel
+    ros_type: geometry_msgs/msg/Twist
+    direction: web_to_ros
+    ros_qos: { reliability: reliable, durability: volatile, history: keep_last, depth: 1 }
+    delivery: realtime
+    max_rate_hz: 30
+    queue: { policy: latest, max_messages: 1 }
+    access: { publish_scope: integration, exclusive_writer: true }
+    command_guard: { required: true, lease_ms: 250 }
+  /observed:
+    ros_topic: /bridge_test/observed
+    ros_type: std_msgs/msg/String
+    direction: ros_to_web
+    ros_qos: { reliability: reliable, durability: volatile, history: keep_last, depth: 10 }
+    delivery: reliable
+    max_rate_hz: 20
+    queue: { policy: fifo, max_messages: 16 }
+  /custom_input:
+    ros_topic: /bridge_test/custom_in
+    ros_type: bridge_test_interfaces/msg/BridgeFrame
+    direction: web_to_ros
+    ros_qos: { reliability: reliable, durability: volatile, history: keep_last, depth: 10 }
+    delivery: reliable
+    max_rate_hz: 20
+    queue: { policy: fifo, max_messages: 16 }
+    access: { publish_scope: integration, exclusive_writer: false }
+  /custom_output:
+    ros_topic: /bridge_test/custom_out
+    ros_type: bridge_test_interfaces/msg/BridgeFrame
+    direction: ros_to_web
+    ros_qos: { reliability: reliable, durability: volatile, history: keep_last, depth: 10 }
+    delivery: reliable
+    max_rate_hz: 20
+    queue: { policy: fifo, max_messages: 16 }

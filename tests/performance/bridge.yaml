@@ -1,0 +1,25 @@
+version: 1
+robot_id: performance-test
+limits:
+  max_peers: 4
+  max_message_bytes: 16384
+  max_peer_queue_bytes: 1048576
+  max_channel_buffered_bytes: 262144
+topics:
+  /performance/input:
+    ros_topic: /bridge_performance/input
+    ros_type: std_msgs/msg/String
+    direction: web_to_ros
+    ros_qos: { reliability: reliable, durability: volatile, history: keep_last, depth: 256 }
+    delivery: reliable
+    max_rate_hz: 1000
+    queue: { policy: fifo, max_messages: 256 }
+    access: { publish_scope: performance, exclusive_writer: false }
+  /performance/output:
+    ros_topic: /bridge_performance/output
+    ros_type: std_msgs/msg/String
+    direction: ros_to_web
+    ros_qos: { reliability: reliable, durability: volatile, history: keep_last, depth: 256 }
+    delivery: reliable
+    max_rate_hz: 1000
+    queue: { policy: fifo, max_messages: 256 }

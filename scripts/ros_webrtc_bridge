@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ament の lib/<package> 配下にある wrapper から、同梱 runtime を絶対 file URL で
+# 読み込む。BRIDGE_* と ROS_* は呼出元の環境をそのまま引き継ぐ。
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+entrypoint="${script_dir}/dist/app/cli.js"
+
+exec node --input-type=module --eval '
+  import { pathToFileURL } from "node:url";
+  try {
+    const bridge = await import(pathToFileURL(process.argv[1]).href);
+    await bridge.main();
+  } catch {
+    console.error("Bridge startup failed");
+    process.exitCode = 1;
+  }
+' "${entrypoint}"

@@ -15,7 +15,7 @@ export interface BrowserConnectionReport {
   readonly localCandidateTypes: string[];
   readonly reconnections: number;
   readonly assertions: {
-    readonly stringEcho: 'PASS'; readonly twistEcho: 'PASS'; readonly expiredLeaseRejected: 'PASS';
+    readonly stringEcho: 'PASS'; readonly twistEcho: 'PASS'; readonly customInterfaceEcho: 'PASS'; readonly expiredLeaseRejected: 'PASS';
     readonly expiredCommandNotObserved: 'PASS'; readonly oldEpochRejected: 'PASS';
     readonly oldEpochCommandNotObserved: 'PASS'; readonly distinctEpochs: 'PASS'; readonly selectedCandidate: 'PASS';
   };

@@ -34,7 +34,7 @@ adapter.start();
 
 `descriptorFromRos`はbool、string、整数8/16/32/64、float32/64、uint8配列、通常配列、nested messageを明示した型metadataから構築します。固定長・bounded制約を保持し、定数をenum制約へ変換しません。循環・過深schema、未対応primitiveを起動前に拒否します。`wstring`、`byte`、`char`等の互換性は未確定であり、推測した型を公開しません。ROS type hashとwire schema IDは本モジュールの対象外です。
 
-`rclnodejs 2.2.0`のscalar 64bit整数はnative addon上でsafe範囲number／範囲外decimal stringです。本モジュールはschemaに従ってbridgeの`bigint`へ変換し、publish時はaddonが要求するdecimal stringへ戻します。一般のstringは変換しません。subscriptionは`enableTypedArray: false`を指定し、uint8列だけをbridgeの`Uint8Array`へ変換します。未知field、配列のholeや追加propertyを暗黙に捨てません。
+`rclnodejs 2.2.0`のscalar 64bit整数は、生成方式によりsubscription側でsafe範囲number、decimal string、または`bigint`として現れる可能性があります。本モジュールはどの入力もschema範囲を検証してbridgeの`bigint`へ統一し、publish時は生成message setterが要求する`bigint`を維持します。一般のstringは変換しません。subscriptionは`enableTypedArray: false`を指定し、uint8列だけをbridgeの`Uint8Array`へ変換します。未知field、配列のholeや追加propertyを暗黙に捨てません。
 
 backendの`codecOptions`と`descriptorFromRos`の第3引数`maxDepth`で変換資源上限を調整できます。既定値は[codec](../codec/README.md)と同じです。string boundのUTF-8 byte規約とrclnodejsの生成bindingとの完全な対応は、多byte bounded stringの実ROS fixtureで今後検証します。実ROSで確認した型は下記の範囲に限定します。
 

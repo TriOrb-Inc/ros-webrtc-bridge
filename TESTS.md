@@ -1,6 +1,6 @@
 # テスト方針
 
-状態: Unit・結合試験、実ROS、実Chromium、direct / TURN UDPの接続試験を実装しています。Humble/Jazzyのarm64で検証済みです。PRのCIを実装しています。amd64、通信障害・性能測定等は未完了で、全ゲートの達成とは扱いません。現在の実行手順と範囲は§11に記載します。
+状態: Unit・結合試験、実ROS、実Chromium、direct / TURN UDP、ROS packageのclean offline build・install・起動、外部独自型、性能・soak harnessを実装しています。Humble/Jazzyのarm64、Jazzy arm64のFast DDS/Cyclone DDS差分で検証済みです。amd64はPR matrixへ追加済みで、実Actions結果を得るまでは検証済みと扱いません。通信障害等は未完了で、全ゲートの達成とは扱いません。現在の実行手順と範囲は§11に記載します。
 
 共通開発規約とカバレッジ必須条件の正本は [CONTRIBUTING.md](CONTRIBUTING.md)、製品の契約は [docs/design.md](docs/design.md)、セキュリティ境界は [SECURITY.md](SECURITY.md) とします。本書は、それらをどの環境・観測・合格条件で検証するかを定めます。仕様を変更する場合は関連文書も同時に更新します。
 
@@ -23,6 +23,7 @@
 | 実ROS integration | rclnodejs、独立ROS node、QoS、entity寿命、独自message型 | ROS graphと実受信内容を観測。mockに置換しない |
 | Browser E2E | 実browser、SDK、実PeerConnection、signaling、実ROS | 両方向の通信と再接続、認可、channel設定を境界越しに確認 |
 | Network fault | 実transport、TURN、遅延・loss・帯域・切断の注入 | 選択ICE経路、drop、queue、失効後publish、復帰を観測 |
+| ROS package外装 | colcon discovery/build/test、install layout、`ros2 run`、`ros2 launch` | source tree外のinstall済みentrypointで起動し、HTTPS healthと資源解放を確認 |
 | Release / 性能 | 配布artifact、新規環境、長時間負荷、対応matrix | installから起動まで再現し、全必須ゲートと決定済みbudgetを満たす |
 
 Unitは高速に多数の順序・境界を探索し、E2Eは主要な利用者経路と境界の接続を確認します。全組合せをE2Eへ重複実装しません。ただし認可・期限・資源解放はUnitだけで完了させません。
@@ -79,6 +80,13 @@ tests/performance/            # 固定workloadと集計
 | NET-01 | direct/relay-only、TURN UDP/TCP/TLS、UDP遮断 | 選択candidate pairから実経路を確認。対応宣言する経路は接続・双方向通信・切断復帰に成功 | Browser、Network |
 | LIFE-01 | subscribe/接続を反復、途中で例外・process終了 | 共有ROS entity数は設定数で一定。handle/listener/timer/bufferを解放し無期限増加しない | Unit、実ROS、負荷 |
 | SEC-01 | 深いJSON、過大SDP/ICE/schema、認証失敗、ログ出力 | 境界で上限・timeoutを適用。payload/認証情報/接続情報を既定logへ出さない | Unit、Browser |
+| OFFLINE-01 | root/vendorのnode_modules・`.runtime`とcolcon出力を除いたclean sourceをnetwork遮断containerでbuild | 事前準備済みlockfile cacheと同梱transportだけでnpm ci、binding生成、colcon build/test、install済みrun/launchまで成功。cache欠落はnetworkへfallbackせず失敗 | Package、CI |
+| INST-E2E-01 | source CLIを使わずcolcon install済み`ros2 run`をGatewayにして実browser・独立ROS nodeを接続 | package prefixがinstall treeで、String/Twist・lease/epoch・再接続・direct/relayの既存assertionを維持 | Browser、実ROS、Package |
+| TYPE-CUSTOM-01 | core外のinterface overlayでnested、bounded、固定配列、64bit、uint8列を生成 | core packageへtest型依存を追加せず、binding生成後に全fieldをWeb→ROS→Webで一致 | Browser、実ROS |
+| ARCH-AMD64-01 | Humble/Jazzyをnative amd64 runnerで実行 | image architectureと`process.arch=x64`を確認し、Fast DDSのnative・installed E2E・offline package試験がすべて成功 | CI |
+| RMW-02 | Fast DDS基準からCyclone DDSだけを変更 | 実RMW identifierが要求値と一致し、Humble/Jazzyのinstalled direct E2Eとnative試験が成功 | 実ROS、CI |
+| PERF-01 | 固定workloadで実WebRTC→ROS→Webを測定 | RTT・接続時間・throughput・CPU/RSS・loss/reject/unexpected・cleanupを匿名集計し、安全invariantと暫定budgetを区別 | Performance |
+| SOAK-01 | 同じinstalled経路を1時間継続 | crash/OOM、loss/reject/unexpected、RSS上限、cleanupを満たす。共有runner値を絶対性能保証にしない | Performance、週次CI |
 | SYS-01 | browser background/suspend、gateway crash、DDS/controller遅着 | 対象controllerのwatchdog/gateが規定どおり停止・遅着拒否。別途定めたシステム条件でのみ合格 | 実機・システム |
 
 CMD-01は設計書のmonotonic clockによる期限境界を検証します。browserのwall clockでGatewayの期限判定を置き換えません。
@@ -133,7 +141,8 @@ read方向の撤回保証は、撤回処理完了後にapplication queueから�
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)は`pull_request`の`opened`・`reopened`・`synchronize`で起動します。新しいcommitのpushは`synchronize`に対応します。base branch・変更pathによる絞り込みはせず、draft PRと文書だけの変更でも全jobを実行します。PR番号ごとのconcurrencyで古い実行をキャンセルし、最新変更を検証します。
 
 - Unit job: Node 22.22.2、`npm ci --ignore-scripts`、transport生成、typecheck、Unit/Contractとファイル別C0/C1 100%、計測校正、実DataChannel試験。
-- ROS job: Humble／Jazzyを別々のGitHub-hosted `ubuntu-24.04-arm` VMで実行。Dockerでdistroを分離し、独立native試験とChromiumのdirect / TURN UDPを検証。片方の失敗で他方の結果を省略しません。
+- ROS job: Humble／Jazzyごとに`arm64 + Fast DDS`、`amd64 + Fast DDS`、`amd64 + Cyclone DDS`の1軸差分matrixを別VMで実行。独立native試験、install済みGatewayとChromiumのdirect、Fast DDSではTURN UDP、network遮断したclean colcon build/test/run/launchを検証します。片方の失敗で他方の結果を省略しません。
+- Performance workflow: PRではJazzy/amd64/Fast DDSの15秒回帰profile、週次と手動`soak`では同じinstalled経路を1時間実行します。匿名集計値だけをSummaryへ出し、共有runnerの絶対値は製品性能保証にしません。
 - `contents: read`だけを付与し、checkout credentialを保持しません。CIで長期credentialを必要とせず、接続試験のcredential・TLS鍵はharnessが実行時生成します。PRのmerge commitをcheckoutしてbaseとの組合せを検証します。
 - jobと長時間工程にtimeoutを設けます。通常終了・失敗時はharnessが資源を解放し、強制cancel時に残る資源はjob専用VMの破棄で回収します。
 
@@ -158,7 +167,7 @@ CIの自動実行と、失敗時にmergeを禁止するbranch protection / rules
 | controller併用例の実機試験 | SYS-01、controller固有のwatchdog/gate条件 | core nightlyとは別job。併用例のrelease前とcontroller契約変更時は必須 |
 | release候補 | 候補commit・lockfile・配布artifactを固定した全必須試験、決定済み性能budget、clean install、依存/license確認 | 宣言する全環境・経路。artifactのhashを記録し、過去commitの成功を流用しない |
 
-対応目標はROS 2 HumbleとJazzyです。PRとreleaseの基準環境はUbuntu 22.04 / ROS 2 Humble、およびUbuntu 24.04 / ROS 2 Jazzyの両方とし、Fast DDS / Linux amd64 / Chromiumを対応目標とします。現行PR CIは検証済みのarm64を基準とし、amd64は別途実測して追加します。各環境をDockerで再現し、Node、rclnodejs、RMW、transport、browserはM0で互換性を確認したversionへ固定します。現時点の対応済み宣言ではありません。
+対応目標はROS 2 HumbleとJazzyです。PRとreleaseの基準環境はUbuntu 22.04 / ROS 2 Humble、およびUbuntu 24.04 / ROS 2 Jazzyの両方とし、Fast DDS / Linux amd64 / Chromiumを対応目標とします。現行PR CIはarm64基準に加えてnative amd64 runnerとCyclone DDS差分を実行します。各環境をDockerで再現し、Node、rclnodejs、RMW、transport、browserは検証versionへ固定します。workflow追加だけでは対応済みとせず、対象SHAのActions結果を確認します。
 
 | 環境・軸 | 導入順序と昇格条件 |
 | --- | --- |
@@ -175,6 +184,8 @@ Humble・Jazzyの両基準環境は必須とし、追加軸の全直積は要求
 ## 9. 性能・長時間試験
 
 M0の測定から、M1開始前に暫定budget、M2 release候補の計測前に正式budgetを決めます。未確定の数値、未実行の経路をrelease合格として扱いません。閾値はconfigから変更可能にし、変更理由をレビューします。
+
+現行`tests/performance/`は、install済みGatewayを使うdirect/reliable/String echoを対象に、PR用15秒と週次1時間のprofileを持ちます。browserの単調clockによるRTT、接続時間、throughput、loss/reject/unexpected、外部`docker stats`によるCPU/RSS、process状態、cleanupをJSONへ記録します。既定のRTT等は初期測定用の緩いPoC budgetであり、正式な製品SLOではありません。
 
 - workloadは小〜中サイズのmessageを基準とし、message型/encode後byte数/rate、1・4 peer、配送方式、network条件、ROS QoSを固定します。サイズ上限近傍と過負荷も含めます。大容量sensorの転送性能や断片化は初期版の必須目標に加えません。
 - CPU型・core数、RAM、OS、ROS/RMW、Node、browser、transport version、direct/relay、warm-up時間、計測時間、反復回数を結果に添えます。
@@ -211,6 +222,7 @@ npm run typecheck
 npm test
 npm run test:coverage
 npm run test:transport
+npm run test:packaging:contract
 ```
 
 `npm test`はbuild後、Unitとモジュール結合試験を実行し、自前runtime全ファイルそれぞれのstatement / branch / function / line 100%を必須とします。テストは個別10秒のtimeoutを持ち、通常は数秒以内に完了します。型宣言`.d.ts`、外部依存、生成JS、テスト/harnessは分母に含めません。weriftの生成物は外部実装として対象外ですが、`npm run test:transport`で固定patchを含む実DataChannel送受信を検証します。
@@ -225,8 +237,10 @@ npm run test:transport
 | `tests/unit/ros/`、`app/` | descriptor、64bit/bytes、hash、起動/終了、実HTTPSと認証 | 多ユーザーidentity、全ROS型 |
 | `tests/unit/transport/`、`signaling/` | 3channel属性、SDP/message容量、待機中取消、認証前拒否、peer解放 | 実ネットワーク障害 |
 | `tests/contracts/module-flow.test.ts` | 設定→codec→guard→同期publish spy、codec→byte queue | 独立ROS観測は下記 |
-| `tests/ros/native.test.ts` | String/Twist、連鎖remap、実entity・終了 | QoS不一致、全型、性能 |
-| `tests/browser/`、`tests/connection/` | 実wire/String/Twist、CMD-01/02、ACK-01、NET-01 UDP、再接続 | TURN TCP/TLS、UDP遮断、長時間・controller |
+| `tests/ros/native.test.ts` | String/Twist、外部BridgeFrame、連鎖remap、実entity・終了 | QoS不一致、全ROS型、性能 |
+| `tests/browser/`、`tests/connection/` | install済みartifact、実wire/String/Twist/BridgeFrame、CMD-01/02、ACK-01、NET-01 UDP、再接続 | TURN TCP/TLS、UDP遮断、controller |
+| `tests/packaging/` | ament metadata、clean offline colcon build/test、install済みrun/launch、秘密値非同梱 | Debian/bloom公開、公式ROS build farm登録 |
+| `tests/performance/` | installed direct String echo、RTT/throughput/CPU/RSS、15秒回帰・1時間soak、cleanup | event-loop/native滞留、queue/buffer、slow peer、障害注入、正式SLO |
 
 Linux Docker hostで、次のコマンドにより両distroのdirect / TURN UDPを検証します。
 
@@ -235,9 +249,17 @@ npx playwright-core install chromium
 npm run test:connection
 ```
 
-環境の隔離、credential生成・削除、timeout、調査用のmatrix指定は[接続試験](tests/connection/README.md)、ROS単独試験は[ROS試験](tests/ros/README.md)を参照してください。検証済み構成はHumble/Ubuntu 22.04とJazzy/Ubuntu 24.04、Fast DDS、arm64、Node 22.22.2、rclnodejs 2.2.0の同梱prebuilt、Chromium 153.0.8010.12、coturn 4.6.3です。ブラウザSDKは未実装なのでraw clientを用います。
+対象ROS distroをsourceし、rclnodejs native addonを準備した環境では、次のコマンドでROS package外装を隔離検証します。CIはHumble/Jazzyの各ROS jobで接続試験用imageを再利用して実行します。
 
-この範囲の成功は受け入れID全体の合格ではありません。QOS-01/02の不一致・latched履歴、NET-01のTCP/TLS・UDP遮断、SYS-01、性能・負荷、amd64は未検証または未実装です。ACK-01は実ROS observerまで確認しますが、controller完了を意味しません。§8の全必須ゲートとrelease条件の達成とは区別します。
+```bash
+npm run test:packaging
+npm run test:performance
+npm run test:soak
+```
+
+環境の隔離、credential生成・削除、timeout、調査用のmatrix指定は[接続試験](tests/connection/README.md)、ROS単独試験は[ROS試験](tests/ros/README.md)、負荷設定は[性能harness](tests/performance/README.md)を参照してください。ローカルではHumble/Jazzy arm64 Fast DDS、Jazzy arm64 Cyclone DDS、Node 22.22.2、rclnodejs 2.2.0、Chromium 153.0.8010.12、coturn 4.6.3を検証しています。amd64はActions結果の確認後に検証済みへ昇格します。ブラウザSDKは未実装なのでraw clientを用います。
+
+この範囲とpackage外装試験の成功は受け入れID全体の合格ではありません。QOS-01/02の不一致・latched履歴、NET-01のTCP/TLS・UDP遮断、SYS-01、性能の未計測指標と正式SLOは未検証または未実装です。Debian/bloom公開は当面対象外です。ACK-01は実ROS observerまで確認しますが、controller完了を意味しません。§8の全必須ゲートとrelease条件の達成とは区別します。
 
 buildは`.runtime/build/`、coverageは`.runtime/coverage/`へ出力します。`coverage-summary.json`でfile単位の割合、`coverage-final.json`と`lcov.info`でstatement/branch位置を確認できます。測定artifactと調査記録はGitへ含めません。ROS/browser/TURNの具体的な起動手順・timeout・後始末は、各harnessのREADMEを参照してください。
 

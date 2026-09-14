@@ -13,6 +13,7 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
   const CONTROL = 'ros.control.v1';
   let commandSequence = 0;
   let sampleSequence = 0;
+  let customSequence = 0;
   let fatal: string | undefined;
   const rejectedTwists = new Set<string>();
   const runNonce = crypto.getRandomValues(new Uint32Array(2));
@@ -103,7 +104,7 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
     const welcome = await receive(connection, wire => wire.op === 'welcome' || wire.op === 'error', 'hello');
     check(welcome.op === 'welcome' && typeof welcome.epoch === 'string', 'welcome_rejected');
     const names = new Set(welcome.catalog.map((topic: Wire) => topic.topic));
-    check(['/input', '/output', '/command', '/observed'].every(topic => names.has(topic)), 'catalog_mismatch');
+    check(['/input', '/output', '/command', '/observed', '/custom_input', '/custom_output'].every(topic => names.has(topic)), 'catalog_mismatch');
     connection.epoch = welcome.epoch;
     check(!epochs.includes(connection.epoch), 'reused_epoch');
     epochs.push(connection.epoch);
@@ -151,6 +152,21 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
   function sameTwist(wire: Wire, expected: Wire): boolean {
     return observedFingerprint(wire) === fingerprint(expected);
   }
+  /** 外部ROS packageの全field境界値をwire表現で生成する。入力なし、出力: BridgeFrame。 */
+  function customFrame(): Wire {
+    return { meta: { source: `browser-${++customSequence}`, stamp: { sec: -1, nanosec: 999999999 } },
+      signed_value: '-9223372036854775808', unsigned_value: '18446744073709551615',
+      payload: 'AH+A/w==', samples: [0.25, -0.5, 1.5] };
+  }
+  /** BridgeFrameをJSON key順に依存せず全field比較する。入力: message/期待値、出力: 一致。 */
+  function sameCustom(wire: Wire, expected: Wire): boolean {
+    const value = wire.data;
+    return value?.meta?.source === expected.meta.source && value?.meta?.stamp?.sec === expected.meta.stamp.sec
+      && value?.meta?.stamp?.nanosec === expected.meta.stamp.nanosec && value?.signed_value === expected.signed_value
+      && value?.unsigned_value === expected.unsigned_value && value?.payload === expected.payload
+      && Array.isArray(value?.samples) && value.samples.length === 3
+      && value.samples.every((sample: unknown, index: number) => sample === expected.samples[index]);
+  }
   /** commandを1回送りROS API応答を確認する。入力: handle/lease/epoch/data、出力: 応答。 */
   async function command(connection: Connection, handle: string, lease: string, epoch: string, data: Wire): Promise<Wire> {
     const seq = String(++commandSequence);
@@ -195,8 +211,10 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
       const connection = await connect();
       const output = await subscribe(connection, '/output');
       const observed = await subscribe(connection, '/observed');
+      const customOutput = await subscribe(connection, '/custom_output');
       const publisher = await request(connection, 'advertise', { topic: '/input' }, 'advertised');
       const commander = await request(connection, 'advertise', { topic: '/command' }, 'advertised');
+      const customPublisher = await request(connection, 'advertise', { topic: '/custom_input' }, 'advertised');
       const marker = crypto.randomUUID();
       let echoed = false;
       let seq = 0;
@@ -215,6 +233,15 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
           else await tick();
         }
       }
+      // core packageに依存を固定せず、外部overlayで生成した型を全field双方向に通す。
+      const custom = customFrame();
+      const customPublishSeq = String(customSequence);
+      send(connection, 'ros.reliable.v1', { op: 'publish', handle: customPublisher.handle,
+        epoch: connection.epoch, seq: customPublishSeq, data: custom });
+      const customAck = await receive(connection, wire => wire.op === 'published_to_ros'
+        && wire.handle === customPublisher.handle && wire.seq === customPublishSeq, 'custom_publish_ack');
+      check(customAck.op === 'published_to_ros', 'custom_publish_rejected');
+      await receive(connection, wire => wire.stream_id === customOutput && sameCustom(wire, custom), 'custom_echo');
       const previousLease = await positiveCommand(connection, commander.handle, observed);
       await settle(connection, observed);
       // browserとGatewayのclock原点を比較せず、250ms lease受領後400ms以上待つ。
@@ -239,13 +266,15 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
       }
       await request(connection, 'unsubscribe', { stream_id: output }, 'unsubscribed');
       await request(connection, 'unsubscribe', { stream_id: observed }, 'unsubscribed');
+      await request(connection, 'unsubscribe', { stream_id: customOutput }, 'unsubscribed');
       await request(connection, 'unadvertise', { handle: publisher.handle }, 'unadvertised');
       await request(connection, 'unadvertise', { handle: commander.handle }, 'unadvertised');
+      await request(connection, 'unadvertise', { handle: customPublisher.handle }, 'unadvertised');
       check(fatal === undefined, fatal ?? 'invalid_incoming_message');
       connection.pc.close(); active.delete(connection.pc);
     }
     return { connectionMs, localCandidateTypes, reconnections: 2, assertions: {
-      stringEcho: 'PASS', twistEcho: 'PASS', expiredLeaseRejected: 'PASS', expiredCommandNotObserved: 'PASS',
+      stringEcho: 'PASS', twistEcho: 'PASS', customInterfaceEcho: 'PASS', expiredLeaseRejected: 'PASS', expiredCommandNotObserved: 'PASS',
       oldEpochRejected: 'PASS', oldEpochCommandNotObserved: 'PASS', distinctEpochs: 'PASS', selectedCandidate: 'PASS',
     } };
   } catch (error) {
@@ -254,7 +283,8 @@ export async function browserScenario(input: ScenarioInput): Promise<ScenarioRes
       'missing_offer', 'offer_rejected', 'invalid_answer', 'channels_open', 'hello', 'welcome_rejected', 'catalog_mismatch',
       'reused_epoch', 'selected_pair_missing', 'candidate_type_missing', 'relay_required', 'invalid_subscribed', 'command_ack',
       'normal_command_rejected', 'normal_command_observation', 'observation_not_quiet', 'rejected_command_observed',
-      'string_echo_timeout', 'string_publish_ack', 'string_publish_rejected', 'lease_expiry_wait', 'expired_lease_accepted', 'old_epoch_accepted']);
+      'string_echo_timeout', 'string_publish_ack', 'string_publish_rejected', 'custom_publish_ack', 'custom_publish_rejected',
+      'custom_echo', 'lease_expiry_wait', 'expired_lease_accepted', 'old_epoch_accepted']);
     for (const op of ['subscribe', 'advertise', 'arm', 'unsubscribe', 'unadvertise']) {
       known.add(`control_${op}`); known.add(`control_${op}_rejected`);
     }

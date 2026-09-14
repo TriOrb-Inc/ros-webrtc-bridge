@@ -95,13 +95,19 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   ros:
-    name: ROS ${{ matrix.distro }} / Chromium / direct and TURN UDP / arm64
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 60
+    name: ROS ${{ matrix.distro }} / ${{ matrix.arch }} / ${{ matrix.rmw_name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 95
     strategy:
       fail-fast: false
       matrix:
-        distro: [humble, jazzy]
+        include:
+          - { distro: humble, runner: ubuntu-24.04-arm, arch: arm64, node_arch: arm64, expected_node_arch: arm64, rmw: rmw_fastrtps_cpp, rmw_name: Fast-DDS, image_suffix: fastrtps, turn: '1' }
+          - { distro: jazzy,  runner: ubuntu-24.04-arm, arch: arm64, node_arch: arm64, expected_node_arch: arm64, rmw: rmw_fastrtps_cpp, rmw_name: Fast-DDS, image_suffix: fastrtps, turn: '1' }
+          - { distro: humble, runner: ubuntu-24.04,     arch: amd64, node_arch: x64,   expected_node_arch: x64,   rmw: rmw_fastrtps_cpp, rmw_name: Fast-DDS, image_suffix: fastrtps, turn: '1' }
+          - { distro: jazzy,  runner: ubuntu-24.04,     arch: amd64, node_arch: x64,   expected_node_arch: x64,   rmw: rmw_fastrtps_cpp, rmw_name: Fast-DDS, image_suffix: fastrtps, turn: '1' }
+          - { distro: humble, runner: ubuntu-24.04,     arch: amd64, node_arch: x64,   expected_node_arch: x64,   rmw: rmw_cyclonedds_cpp, rmw_name: Cyclone-DDS, image_suffix: cyclonedds, turn: '0' }
+          - { distro: jazzy,  runner: ubuntu-24.04,     arch: amd64, node_arch: x64,   expected_node_arch: x64,   rmw: rmw_cyclonedds_cpp, rmw_name: Cyclone-DDS, image_suffix: cyclonedds, turn: '0' }
     steps:
       - name: Announce environment setup
         timeout-minutes: 1
@@ -118,7 +124,7 @@ jobs:
         timeout-minutes: 5
         with:
           node-version: '22.22.2'
-          architecture: arm64
+          architecture: ${{ matrix.node_arch }}
           package-manager-cache: false
 
       - name: Install dependencies without native scripts
@@ -144,7 +150,10 @@ jobs:
         timeout-minutes: 31
         env:
           CONNECTION_DISTROS: ${{ matrix.distro }}
-          CONNECTION_TURN: '1'
+          CONNECTION_TURN: ${{ matrix.turn }}
+          CONNECTION_RMW_IMPLEMENTATION: ${{ matrix.rmw }}
+          CONNECTION_EXPECTED_ARCH: ${{ matrix.expected_node_arch }}
+          CONNECTION_BUILD_TIMEOUT_MS: '1200000'
         run: |
           echo 'Docker build may be silent; harness reports progress and enforces deadlines. Overall limit: 1800 seconds.'
           timeout --kill-after=15s 1800s npm run test:connection
@@ -154,26 +163,49 @@ jobs:
         timeout-minutes: 4
         env:
           TEST_DISTRO: ${{ matrix.distro }}
+          TEST_RMW: ${{ matrix.rmw }}
+          TEST_IMAGE_SUFFIX: ${{ matrix.image_suffix }}
+          TEST_EXPECTED_NODE_ARCH: ${{ matrix.expected_node_arch }}
         run: |
           echo 'Native ROS startup may be silent; container and test deadlines are bounded to 180 seconds.'
           # 接続試験が生成した同じimageを使い、hostや他jobのDDS graphから隔離する。
           native_status=0
           timeout --kill-after=10s 180s docker run --rm --init --network none \
-            --env ROS_DOMAIN_ID=74 --env ROS_LOCALHOST_ONLY=1 \
-            "ros-webrtc-bridge-test:${TEST_DISTRO}" \
-            bash -lc 'source "/opt/ros/${ROS_DISTRO}/setup.bash" && node --test --test-timeout=60000 .runtime/build/tests/ros/native.test.js' \
+            --env ROS_DOMAIN_ID=74 --env ROS_LOCALHOST_ONLY=1 --env RMW_IMPLEMENTATION="${TEST_RMW}" \
+            "ros-webrtc-bridge-test:${TEST_DISTRO}-${TEST_IMAGE_SUFFIX}" \
+            bash -lc 'source "/opt/ros/${ROS_DISTRO}/setup.bash" && source /bridge/test_interfaces/install/setup.bash && node --test --test-timeout=60000 .runtime/build/tests/ros/native.test.js' \
             || native_status=$?
+          container_arch=$(docker run --rm --network none \
+            "ros-webrtc-bridge-test:${TEST_DISTRO}-${TEST_IMAGE_SUFFIX}" node -p process.arch)
+          if [[ "${container_arch}" != "${TEST_EXPECTED_NODE_ARCH}" ]]; then
+            echo 'Native test container architecture differs from the matrix expectation.' >&2
+            native_status=1
+          fi
           # TAPやpayloadの代わりに固定fieldの匿名結果だけをJob Summaryへ渡す。
-          NATIVE_TEST_EXIT_CODE="$native_status" node --input-type=module <<'NODE'
+          NATIVE_TEST_EXIT_CODE="$native_status" NATIVE_CONTAINER_ARCH="$container_arch" node --input-type=module <<'NODE'
           import { mkdirSync, writeFileSync } from 'node:fs';
           mkdirSync('.runtime', { recursive: true });
           writeFileSync('.runtime/native-result.json', JSON.stringify({
             distro: process.env.TEST_DISTRO,
-            architecture: process.arch,
+            architecture: process.env.NATIVE_CONTAINER_ARCH,
             status: Number(process.env.NATIVE_TEST_EXIT_CODE) === 0 ? 'PASS' : 'FAIL'
           }, null, 2));
           NODE
           exit "$native_status"
+
+      - name: ROS package build, install, run, and launch smoke
+        if: ${{ !cancelled() && steps.connection.outcome != 'skipped' }}
+        timeout-minutes: 16
+        env:
+          TEST_DISTRO: ${{ matrix.distro }}
+          TEST_RMW: ${{ matrix.rmw }}
+          TEST_IMAGE_SUFFIX: ${{ matrix.image_suffix }}
+        run: |
+          echo 'The isolated colcon build copies and installs Node dependencies; bounded to 900 seconds.'
+          timeout --kill-after=15s 900s docker run --rm --init --network none \
+            --env ROS_DOMAIN_ID=75 --env ROS_LOCALHOST_ONLY=1 --env RMW_IMPLEMENTATION="${TEST_RMW}" \
+            "ros-webrtc-bridge-test:${TEST_DISTRO}-${TEST_IMAGE_SUFFIX}" \
+            bash -lc 'source "/opt/ros/${ROS_DISTRO}/setup.bash" && source /bridge/test_interfaces/install/setup.bash && bash tests/packaging/smoke.sh'
 
       # summaryとjob logはrepositoryの保持設定に従う。秘密を含む.runtime全体は掲載しない。
       - name: Summarize verification and build diagnostics

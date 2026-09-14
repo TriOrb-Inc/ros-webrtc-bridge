@@ -289,7 +289,7 @@ M0では、次の事項を検証・確定する。
 
 ## 14. モジュール試作の契約と残る接続境界
 
-`packages/bridge/src/`にconfig、codec、session、router、ROS adapter、transport、HTTPS signaling、起動CLIを実装している。Humble/Jazzyのarm64 Docker、Node 22.22.2、rclnodejs 2.2.0、Chromium 153.0.8010.12でString/Twistの双方向通信、直接接続、TURN UDP、旧command拒否、再接続を検証した。amd64・他browser・性能budget等のM0残件は別途評価する。
+`packages/bridge/src/`にconfig、codec、session、router、ROS adapter、transport、HTTPS signaling、起動CLIを実装している。`package.xml`と`CMakeLists.txt`でament/colconへ接続し、runtime、npm依存、設定、launch、`ros2 run` wrapperをinstallする。Humble/Jazzyのarm64 Docker、Node 22.22.2、rclnodejs 2.2.0、Chromium 153.0.8010.12でString/Twistと外部BridgeFrameの双方向通信、直接接続、TURN UDP、旧command拒否、再接続を検証した。接続Gatewayはcolcon install済みartifactから起動する。package外装はclean sourceと事前構築npm cacheからnetwork遮断container内でbuild/test/run/launchを再構成する。amd64はPR matrixで実測し、Debian/bloom公開は当面対象外とする。他browser・正式性能budget等のM0残件は別途評価する。
 
 ### 起動設定
 
@@ -303,7 +303,7 @@ M0では、次の事項を検証・確定する。
 
 [codec](../packages/bridge/src/codec/README.md)は明示したfield descriptorを生成時にsnapshotする。64bit整数はnative側`bigint`、wire側canonical decimal string、uint8列はnative側`Uint8Array`、wire側padding付きcanonical base64に固定する。float32はbinary32へ丸めてoverflowを拒否する。string上限はUTF-8 bytesとし、孤立surrogateを拒否する。
 
-型値は欠落・未知field、配列のhole・追加property、getter等を暗黙に捨てない。commandには`allowNonFinite: false`を必須指定する。descriptor/payloadの深さ、node数、配列長、string/bytes長はfactory optionで制限する。rclnodejsのint64 scalarはsafe範囲のnumberまたはdecimal stringとして読み、codecへはbigintを渡す。ROS publish時はnative APIが受け付けるdecimal stringへ変換する。
+型値は欠落・未知field、配列のhole・追加property、getter等を暗黙に捨てない。commandには`allowNonFinite: false`を必須指定する。descriptor/payloadの深さ、node数、配列長、string/bytes長はfactory optionで制限する。rclnodejsのint64 scalarは生成方式によりsafe範囲のnumber、decimal string、または`bigint`として読み、codecへは`bigint`を渡す。ROS publish時もrclnodejs 2.2.0の生成message setterが要求する`bigint`を維持する。
 
 ROS型はrclnodejs `MessageIntrospector`からdescriptorを生成し、未知primitiveを推測で公開しない。schema IDは`codec`、`descriptor`、`allowNonFinite`を含むobjectを再帰的なkey昇順で正規化したJSONのSHA-256とする。array順序を保持し、同じ型でもcommandの非有限値拒否policyが異なればhashを変える。配布JSON Schema・HTTP schema取得APIは後続実装である。
 
@@ -323,6 +323,8 @@ PoCでは[werift core](../vendor/werift-datachannel/README.md)の通常entryか�
 
 認証は実行時注入する単一Bearerと、subscribe公開名・publish scopeの固定allowlistである。未指定権限は拒否し、認証前にはPeerConnectionを作らない。TLSを必須とし、SDP/request/peer数/交渉時間を制限する。[CLIの設定](../packages/bridge/src/app/README.md)と[接続試験](../tests/connection/README.md)に再現手順を記載する。
 
-ブラウザSDK、JWT/多ユーザーのidentity管理、外向きrendezvous、TURN TCP/TLS・UDP遮断、QoS不一致診断、性能・長時間試験、controller側watchdogは未完了である。これらを接続PoCの成功で代替しない。
+ブラウザSDK、JWT/多ユーザーのidentity管理、外向きrendezvous、TURN TCP/TLS・UDP遮断、QoS不一致診断、controller側watchdogは未完了である。性能harnessはdirect/reliable/StringのRTT・throughput・CPU/RSS・cleanupを測るが、event-loop遅延、native callback滞留、queue byte数、slow peer、network impairmentは未計測であり、接続PoCの成功で代替しない。
 
-PRの作成・再オープン・ブランチ更新では、[CI](../.github/workflows/ci.yml)が単体・結合・カバレッジ校正・transport試験、およびHumble/Jazzy arm64の実ROS・Chromium direct/TURN UDP試験を実行する。nightly、追加対応軸、release試験は[TESTS.md](../TESTS.md#8-ciと対応matrix)の後続計画とする。
+任意設定が参照するROS interface packageはdeployment側packageが依存宣言し、そのoverlayをsourceしてrclnodejs bindingを生成する。試験用の外部`bridge_test_interfaces`でnested、bounded string、固定配列、int64/uint64、uint8列を実Chromium・install済みGateway・独立rclpy間で双方向検証する。core packageへこのtest依存を追加しない。install layout、秘密情報をlaunch argumentへ載せない起動契約、検証範囲は[ROS package化](ros-packaging.md)に記載する。
+
+PRの作成・再オープン・ブランチ更新では、[CI](../.github/workflows/ci.yml)が単体・結合・カバレッジ校正・transport試験、およびHumble/Jazzyのarm64/amd64、Fast DDS/Cyclone DDSの1軸差分で実ROS・Chromium・offline colcon package試験を実行する。[performance workflow](../.github/workflows/performance.yml)はPRで短時間測定、週次と手動で1時間soakを実行する。追加browser、障害注入、controller、release試験は[TESTS.md](../TESTS.md#8-ciと対応matrix)の後続計画とする。
