@@ -101,7 +101,7 @@ class Candidate {
         if (bits.length < 8) {
             throw new Error("SDP does not have enough properties");
         }
-        // 固定ワード
+        // Fixed keywords.
         const kwargs = {
             foundation: bits[0],
             component: Number(bits[1]),
@@ -231,7 +231,7 @@ function candidateFoundation(candidateType, candidateTransport, baseAddress) {
     const key = `${candidateType}|${candidateTransport}|${baseAddress}`;
     return (0, crypto_1.createHash)("md5").update(key, "ascii").digest("hex").slice(7);
 }
-// priorityを決める
+// Determine the priority.
 function candidatePriority(candidateType, options = 65535) {
     const candidateComponent = 1;
     // See RFC 5245 - 4.1.2.1. Recommended Formula

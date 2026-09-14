@@ -4,14 +4,14 @@ import { WebRtcEndpoint } from '../../../packages/bridge/src/transport/endpoint.
 import type { DataChannel, EndpointOptions, Peer, Signal } from '../../../packages/bridge/src/transport/types.js';
 import type { Channel } from '../../../packages/bridge/src/router/types.js';
 
-/** event境界をfake化する。入力型T、出力subscribe/emit。例: emit('open') → 登録callback実行。 */
+/** Fake the event boundary. Input: type T; output: subscribe/emit. Example: emit('open') invokes registered callbacks. */
 function signal<T extends unknown[]>(): Signal<T> & { emit(...args: T): void } {
   const callbacks = new Set<(...args: T) => void>();
   return { subscribe(callback) { callbacks.add(callback); return { unSubscribe() { callbacks.delete(callback); } }; },
     emit(...args: T) { for (const callback of callbacks) callback(...args); } };
 }
 
-/** channelを構築する。入力labelと上書き、出力fake。例: realtime → unordered/maxRetransmits0。 */
+/** Construct a channel. Inputs: label and overrides; output: fake. Example: realtime is unordered with maxRetransmits=0. */
 function channel(label: string, override: Partial<Omit<DataChannel, 'onMessage' | 'stateChanged' | 'bufferedAmountLow'>> = {}) {
   const sent: Buffer[] = [];
   const real = label === 'ros.realtime.v1';
@@ -21,7 +21,7 @@ function channel(label: string, override: Partial<Omit<DataChannel, 'onMessage' 
     send(value: Buffer) { sent.push(value); }, sent, ...override };
 }
 
-/** peerとrouterの副作用を観測する。入力option上書き、出力fixture。例: answer → remote設定1回。 */
+/** Observe peer/router side effects. Input: option overrides; output: fixture. Example: answer sets the remote description once. */
 function fixture(override: Partial<EndpointOptions> = {}) {
   const onDataChannel = signal<[DataChannel]>();
   const connectionStateChange = signal<[string]>();
@@ -32,7 +32,7 @@ function fixture(override: Partial<EndpointOptions> = {}) {
   let send!: (channel: Channel, bytes: Uint8Array) => boolean;
   let onClosed!: () => void;
   const router = { isClosed: false, receive(label: string, bytes: Uint8Array) { received.push([label, bytes]); }, flush() { flushed++; }, close() { closed++; } };
-  // factoryから渡される合意上限とsend callbackも観測対象にする。
+  // Also observe the negotiated limit and send callback passed by the factory.
   const options: EndpointOptions = { peer, maxMessageBytes: 128, maxBufferedBytes: 256, maxSdpBytes: 512, timeoutMs: 1000,
     makeRouter(callback, limit, notify) { send = callback; maximum = limit; onClosed = notify; return router; }, onClosed() {}, onError() { errors++; }, ...override };
   const endpoint = new WebRtcEndpoint(options);
@@ -43,12 +43,12 @@ function fixture(override: Partial<EndpointOptions> = {}) {
 const sdp = 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n';
 const offer = { type: 'offer' as const, sdp };
 
-test('PRO-01/SIZE-01 3channelと合意上限を検証し双方向にbytesを渡す', async () => {
+test('PRO-01/SIZE-01 validate three channels and negotiated limits and pass bytes both ways', async () => {
   const f = fixture();
   assert.deepEqual(await f.endpoint.answer({ ...offer, sdp: `${sdp}a=max-message-size:64\r\n` }), f.peer.localDescription);
   assert.equal(f.state().maximum, 64);
   assert.equal(f.send('ros.control.v1', Buffer.from('x')), false);
-  // 3channel openを待ち、それぞれの低水位/受信通知をrouterへ渡す。
+  // Wait for all three channels to open and forward low-water and receive notifications to the router.
   const control = channel('ros.control.v1', { readyState: 'connecting' });
   const reliable = channel('ros.reliable.v1');
   const realtime = channel('ros.realtime.v1');
@@ -62,7 +62,7 @@ test('PRO-01/SIZE-01 3channelと合意上限を検証し双方向にbytesを渡�
   control.onMessage.emit('{}');
   reliable.onMessage.emit(Buffer.from('{}'));
   assert.equal(f.received.length, 2);
-  // buffer上限一致を許可し、1byte超過とmessage上限超過を別々に扱う。
+  // Allow equality at the buffer limit; distinguish exceeding it by one byte from message-limit overflow.
   control.bufferedAmount = 255;
   assert.equal(f.send('ros.control.v1', Buffer.from('x')), true);
   assert.equal(f.send('ros.control.v1', Buffer.from('xx')), false);
@@ -74,7 +74,7 @@ test('PRO-01/SIZE-01 3channelと合意上限を検証し双方向にbytesを渡�
   await f.endpoint.close();
 });
 
-test('PRO-01 不正channel設定、重複、早着、過大messageでpeerを閉じる', async () => {
+test('PRO-01 close peers on invalid channel settings, duplicates, early arrival, and oversized messages', async () => {
   for (const dc of [channel('extra'), channel('ros.control.v1', { negotiated: true }), channel('ros.control.v1', { ordered: false }),
     channel('ros.control.v1', { maxPacketLifeTime: 1 }), channel('ros.realtime.v1', { maxRetransmits: 1 })]) {
     const f = fixture();
@@ -83,7 +83,7 @@ test('PRO-01 不正channel設定、重複、早着、過大messageでpeerを閉�
     await f.endpoint.close();
     assert.equal(f.state().closed, 1);
   }
-  // 重複labelと全channel到着前messageをそれぞれ拒否する。
+  // Reject duplicate labels separately from messages arriving before all channels.
   for (const mode of ['duplicate', 'early', 'large']) {
     const f = fixture();
     await f.endpoint.answer(offer);
@@ -101,7 +101,7 @@ test('PRO-01 不正channel設定、重複、早着、過大messageでpeerを閉�
   }
 });
 
-test('PRO-01 SDPの型、容量、media、合意上限、answerを検証する', async () => {
+test('PRO-01 validate SDP type, size, media, negotiated limits, and answers', async () => {
   for (const value of [{ type: 'answer', sdp }, { type: 'offer', sdp: 5 }, { type: 'offer', sdp: 'x'.repeat(513) },
     { type: 'offer', sdp: '' }, { type: 'offer', sdp: `${sdp}m=audio 9` }, { type: 'offer', sdp: 'm=video 9' },
     { type: 'offer', sdp: `${sdp}a=max-message-size:1\r\na=max-message-size:2\r\n` },
@@ -114,7 +114,7 @@ test('PRO-01 SDPの型、容量、media、合意上限、answerを検証する',
     Object.assign(f.peer, { localDescription: local });
     await assert.rejects(f.endpoint.answer(offer), /invalid_answer/);
   }
-  // 0は無制限の広告でもアプリ上限128は保つ。
+  // Keep the application limit of 128 even when zero advertises unlimited capacity.
   const f = fixture();
   await f.endpoint.answer({ ...offer, sdp: `${sdp}a=max-message-size:0\r\n` });
   assert.equal(f.state().maximum, 128);
@@ -122,14 +122,14 @@ test('PRO-01 SDPの型、容量、media、合意上限、answerを検証する',
   await f.endpoint.close();
 });
 
-test('LIFE-01 接続失敗、channel閉鎖、期限でrouterを撤回する', async () => {
+test('LIFE-01 revoke routers on connection failure, channel closure, and deadlines', async () => {
   const f = fixture();
   await f.endpoint.answer(offer);
   f.connectionStateChange.emit('connected');
   f.connectionStateChange.emit('disconnected');
   await f.endpoint.close();
   assert.equal(f.state().closed, 1);
-  // channel closeもICE状態通知を待たずにsessionを撤回する。
+  // Channel closure revokes the session without waiting for ICE state notification.
   const g = fixture();
   await g.endpoint.answer(offer);
   const dc = channel('ros.control.v1');
@@ -140,20 +140,20 @@ test('LIFE-01 接続失敗、channel閉鎖、期限でrouterを撤回する', as
   const timeout = fixture({ timeoutMs: 1 });
   timeout.peer.setRemoteDescription = async () => new Promise(() => {});
   await assert.rejects(timeout.endpoint.answer(offer), /closed|timeout/);
-  // negotiation待機の途中で外部closeされた場合もanswerを有限時間で拒否する。
+  // Reject the answer within bounded time if externally closed during negotiation.
   const cancelled = fixture();
   cancelled.peer.setRemoteDescription = async () => new Promise(() => {});
   const pending = assert.rejects(cancelled.endpoint.answer(offer), /closed/);
   await cancelled.endpoint.close();
   await pending;
-  // libraryのcloseが完了しない場合にも上位cleanupを止めない。
+  // A library close that never finishes must not block higher-level cleanup.
   const stuck = fixture({ timeoutMs: 1 });
   stuck.peer.close = async () => new Promise(() => {});
   await stuck.endpoint.close();
   assert.equal(stuck.state().errors, 1);
 });
 
-test('LIFE-01 cleanup例外でもpeerを解放し、未初期化/途中閉鎖を扱う', async () => {
+test('LIFE-01 release peers despite cleanup exceptions and handle uninitialized or partially closed states', async () => {
   const empty = fixture();
   await empty.endpoint.close();
   await assert.rejects(empty.endpoint.answer(offer), /unavailable/);
@@ -163,30 +163,30 @@ test('LIFE-01 cleanup例外でもpeerを解放し、未初期化/途中閉鎖を
   f.peer.close = async () => { throw new Error('peer cleanup'); };
   await f.endpoint.close();
   assert.equal(f.state().errors, 2);
-  // setLocalDescription中に閉鎖されたendpointからanswerを返さない。
+  // Do not return answers from endpoints closed during setLocalDescription.
   const g = fixture();
   g.peer.setLocalDescription = async () => { await g.endpoint.close(); };
   await assert.rejects(g.endpoint.answer(offer), /closed/);
 });
 
-test('CFG-01 transportの不正容量を拒否する', () => {
+test('CFG-01 reject invalid transport capacities', () => {
   assert.throws(() => fixture({ maxMessageBytes: 0 }), /invalid_limit/);
   assert.throws(() => fixture({ maxBufferedBytes: 1 }), /invalid_limit/);
 });
 
-test('LIFE-01 routerの致命的終了をreceive/flush後にpeerへ反映する', async () => {
+test('LIFE-01 propagate fatal router closure to the peer after receive/flush', async () => {
   for (const trigger of ['receive', 'flush']) {
     const f = fixture();
     await f.endpoint.answer(offer);
     const control = channel('ros.control.v1');
     for (const dc of [control, channel('ros.reliable.v1'), channel('ros.realtime.v1')]) f.onDataChannel.emit(dc);
-    // routerのcontrol飽和等で閉鎖済みなら、ICE資源とpeer枠も残さない。
+    // Do not retain ICE resources or peer slots after router closure such as control saturation.
     f.router.isClosed = true;
     if (trigger === 'receive') control.onMessage.emit('{}'); else control.bufferedAmountLow.emit();
     await f.endpoint.close();
     assert.equal(f.state().closed, 1);
   }
-  // ROS callback内の閉鎖通知もEndpoint起点のreceiveを待たずに回収する。
+  // Reclaim closure initiated by a ROS callback without waiting for an Endpoint receive operation.
   const f = fixture();
   await f.endpoint.answer(offer);
   f.notify();

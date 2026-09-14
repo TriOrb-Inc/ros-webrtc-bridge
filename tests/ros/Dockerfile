@@ -4,13 +4,13 @@ FROM ${ROS_IMAGE}
 
 SHELL ["/bin/bash", "-c"]
 
-# 公式Node binaryを使い、host上のROSとnpm成果物を取り込まない。
+# Use official Node binaries without importing host ROS or npm artifacts.
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
-# Fast DDS基準からRMWだけを変えるCyclone試験imageに限り、test-only実装を追加する。
+# Add the test-only implementation only in Cyclone test images that change RMW from the Fast DDS baseline.
 ARG BRIDGE_RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 RUN if [[ "${BRIDGE_RMW_IMPLEMENTATION}" == "rmw_cyclonedds_cpp" ]]; then \
       apt-get update && \
@@ -24,17 +24,17 @@ WORKDIR /bridge
 COPY package.json package-lock.json tsconfig.json .c8rc.json ./
 COPY package.xml CMakeLists.txt LICENSE ./
 COPY vendor ./vendor
-# native installはROS environmentをsourceした後の専用工程へ分離する。
+# Perform native installation in a dedicated step after sourcing the ROS environment.
 RUN echo 'npm dependency resolution may be silent; bounded to 180 seconds' && \
     timeout 180 npm ci --ignore-scripts && node vendor/werift-datachannel/materialize.mjs
 
-# core packageから独立したtest interface overlayを先に作り、動的型の成功経路を検証する。
+# Build a test interface overlay independent of the core package first, exercising successful dynamic type loading.
 COPY tests/ros/interfaces/bridge_test_interfaces /bridge/test_interfaces/src/bridge_test_interfaces
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash && \
     cd /bridge/test_interfaces && \
     colcon build --packages-select bridge_test_interfaces --event-handlers console_direct+
 
-# ROS baseにはbuild toolsと標準interfaceが含まれる。native rebuildは最大10分。
+# The ROS base includes build tools and standard interfaces. Native rebuilds have a ten-minute limit.
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash && \
     source /bridge/test_interfaces/install/setup.bash && \
     echo 'rclnodejs install and interface generation may be silent; bounded to 600 seconds' && \
@@ -46,7 +46,7 @@ COPY launch ./launch
 COPY scripts ./scripts
 RUN npm run build
 
-# 接続試験のGatewayはsource treeを直接起動せず、colcon install済みartifactだけを使う。
+# Connection-test Gateways use only colcon-installed artifacts, never direct source-tree startup.
 RUN mkdir -p /bridge/package_workspace/src/ros_webrtc_bridge && \
     tar --exclude='./.runtime' --exclude='./test_interfaces' --exclude='./package_workspace' \
       -C /bridge -cf - . | tar -C /bridge/package_workspace/src/ros_webrtc_bridge -xf - && \
@@ -55,6 +55,6 @@ RUN mkdir -p /bridge/package_workspace/src/ros_webrtc_bridge && \
     cd /bridge/package_workspace && \
     colcon build --packages-select ros_webrtc_bridge --event-handlers console_direct+
 
-# 対向nodeやgatewayはrun時に明示する。jobごとにDocker networkを作りhost networkは使わない。
+# Specify peers and Gateways at run time. Create a Docker network per job; do not use host networking.
 ENV RMW_IMPLEMENTATION=${BRIDGE_RMW_IMPLEMENTATION}
 CMD ["bash", "-lc", "source /opt/ros/${ROS_DISTRO}/setup.bash && source /bridge/test_interfaces/install/setup.bash && python3 /bridge/tests/ros/peer.py"]

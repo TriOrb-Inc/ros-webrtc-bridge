@@ -3,7 +3,7 @@ import test from 'node:test';
 import { BrowserConnectionError, BrowserHealthError } from '../../browser/connection.js';
 import { connectionFailure, parseContainerState } from '../../connection/diagnostics.js';
 
-test('NET-01 container状態はrunning/exit/OOMだけを保存する', () => {
+test('NET-01 retain only running, exit, and OOM container state', () => {
   assert.deepEqual(parseContainerState('true 0 false\n'), { available: true, running: true, exitCode: 0, oomKilled: false });
   assert.deepEqual(parseContainerState('false 137 true'), { available: true, running: false, exitCode: 137, oomKilled: true });
   for (const value of ['', 'true -1 false', 'true 0 false extra', 'secret']) {
@@ -11,7 +11,7 @@ test('NET-01 container状態はrunning/exit/OOMだけを保存する', () => {
   }
 });
 
-test('NET-01 browser失敗を固定分類し未加工例外を保存しない', () => {
+test('NET-01 classify browser failures without storing raw exceptions', () => {
   const health = new BrowserHealthError('deadline', { attempts: 3, firstFailure: 'connection_refused', elapsedMs: 600, timeoutMs: 600 });
   assert.deepEqual(connectionFailure(health), { stage: 'browser_health', reason: 'deadline', attempts: 3,
     firstFailure: 'connection_refused', elapsedMs: 600, timeoutMs: 600, cleanupFailed: false });

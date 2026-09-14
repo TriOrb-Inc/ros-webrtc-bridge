@@ -7,7 +7,7 @@ import { parseResourceSample, resourceGrowthPerHour } from '../../../tests/perfo
 import { performanceScenario } from '../../../tests/performance/scenario.js';
 import type { BrowserRunReport, PerformanceConfig, ResourceReport } from '../../../tests/performance/types.js';
 
-/** gate試験用の最小構成を返す。入力なし、出力: 検証済み形状の設定。 */
+/** Return minimal gate-test configuration. No input; output: configuration with a validated shape. */
 function config(): PerformanceConfig {
   return {
     version: 1, mode: 'unit',
@@ -22,7 +22,7 @@ function config(): PerformanceConfig {
   };
 }
 
-/** gate試験用の成功reportを返す。入力なし、出力: browser集計。 */
+/** Return a successful gate-test report. No input; output: browser aggregates. */
 function browserReport(): BrowserRunReport {
   return { browserVersion: 'unit', scenario: {
     connectionMs: { count: 1, p50: 5, p95: 5, p99: 5, max: 5 },
@@ -32,13 +32,13 @@ function browserReport(): BrowserRunReport {
   } };
 }
 
-/** gate試験用の十分な観測を返す。入力なし、出力: resource集計。 */
+/** Return sufficient observations for gate tests. No input; output: resource aggregates. */
 function resourceReport(): ResourceReport {
   return { samples: 2, observationSeconds: 1, cpuPercent: { average: 1, max: 2 },
     rssMiB: { initial: 10, final: 10, max: 10, growthPerHour: 0 } };
 }
 
-test('performance config: profile選択・override・不正境界を検証する', async () => {
+test('performance config: validate profile selection, overrides, and invalid boundaries', async () => {
   const loaded = await loadPerformanceConfig({ PERFORMANCE_MODE: 'performance', PERFORMANCE_PEERS: '2',
     PERFORMANCE_REQUIRE_NO_CRASH: '1' });
   assert.equal(loaded.workload.peers, 2);
@@ -48,7 +48,7 @@ test('performance config: profile選択・override・不正境界を検証する
   await assert.rejects(loadPerformanceConfig({ PERFORMANCE_MODE: 'performance', PERFORMANCE_OVERALL_TIMEOUT_SECONDS: '20' }), /invalid_overall_timeout/);
 });
 
-test('performance resource: parser・傾き・sample不足を区別する', () => {
+test('performance resource: distinguish parsing, slopes, and insufficient samples', () => {
   assert.deepEqual(parseResourceSample('12.5%|1GiB / 2GiB'), { cpuPercent: 12.5, rssMiB: 1024 });
   assert.throws(() => parseResourceSample('secret raw output'), /invalid_resource_sample/);
   assert.equal(resourceGrowthPerHour([]), null);
@@ -59,7 +59,7 @@ test('performance resource: parser・傾き・sample不足を区別する', () =
   ]), 2);
 });
 
-test('performance gate: 欠測を合格にせず十分な観測だけを通す', () => {
+test('performance gate: require sufficient observations instead of passing missing measurements', () => {
   const running = { available: true, running: true, exitCode: 0, oomKilled: false } as const;
   const missing = evaluateGates(config(), browserReport(), { ...resourceReport(), samples: 1,
     observationSeconds: 0, rssMiB: { ...resourceReport().rssMiB, growthPerHour: null } }, running, running, true);
@@ -72,42 +72,42 @@ test('performance gate: 欠測を合格にせず十分な観測だけを通す',
     .every(gate => gate.pass), false);
 });
 
-test('performance process: Docker状態の正常値と不正値を区別する', () => {
+test('performance process: distinguish valid and invalid Docker states', () => {
   assert.deepEqual(parseContainerState('true 0 false'), { available: true, running: true, exitCode: 0, oomKilled: false });
   assert.deepEqual(parseContainerState('payload'), { available: false });
 });
 
 type FakeMode = 'exact' | 'corrupt' | 'wrong-channel';
 
-/** browser scenario用の最小DataChannelを模倣する。送信は所有PCへ同期せず配送する。 */
+/** Simulate a minimal browser-scenario DataChannel. Deliver sends asynchronously to its owning PC. */
 class FakeDataChannel {
   readonly readyState = 'open';
   onmessage: ((event: { data: string }) => void) | null = null;
   constructor(readonly label: string, private readonly owner: FakePeerConnection) {}
-  /** wireをfake serverへ渡す。入力: JSON文字列、出力なし。 */
+  /** Pass wire data to the fake server. Input: JSON string; no output. */
   send(data: string): void { this.owner.route(this, JSON.parse(data)); }
 }
 
-/** WebRTC setup/control/echoだけを再現し、payload破損と誤channelを注入できる。 */
+/** Reproduce only WebRTC setup/control/echo, with injectable payload corruption and wrong channels. */
 class FakePeerConnection {
   static mode: FakeMode = 'exact';
   readonly connectionState = 'connected';
   readonly iceGatheringState = 'complete';
   readonly channels = new Map<string, FakeDataChannel>();
   localDescription: { type: 'offer'; sdp: string } | null = null;
-  /** channelを作る。入力: label、出力: fake channel。 */
+  /** Create a channel. Input: label; output: fake channel. */
   createDataChannel(label: string): FakeDataChannel {
     const channel = new FakeDataChannel(label, this); this.channels.set(label, channel); return channel;
   }
-  /** offerを返す。入力なし、出力: 固定SDP。 */
+  /** Return an offer. No input; output: fixed SDP. */
   async createOffer(): Promise<{ type: 'offer'; sdp: string }> { return { type: 'offer', sdp: 'unit' }; }
-  /** local descriptionを保存する。入力: offer、出力なし。 */
+  /** Store the local description. Input: offer; no output. */
   async setLocalDescription(value: { type: 'offer'; sdp: string }): Promise<void> { this.localDescription = value; }
-  /** answerを受理する。入力: answer、出力なし。 */
+  /** Accept an answer. Input: answer; no output. */
   async setRemoteDescription(): Promise<void> {}
-  /** fake connectionを閉じる。入力なし、出力なし。 */
+  /** Close the fake connection. No input or output. */
   close(): void {}
-  /** client wireへcontrol応答またはROS echoを返す。入力: channel/wire、出力なし。 */
+  /** Return a control response or ROS echo to the client. Inputs: channel/wire; no output. */
   route(channel: FakeDataChannel, wire: Record<string, any>): void {
     const control = this.channels.get('ros.control.v1')!, reliable = this.channels.get('ros.reliable.v1')!;
     const deliver = (target: FakeDataChannel, response: Record<string, any>): void =>
@@ -124,7 +124,7 @@ class FakePeerConnection {
   }
 }
 
-/** Node globalへfake browser境界を一時注入してscenarioを実行する。入力: mode、出力: scenario結果。 */
+/** Run the scenario with temporary fake browser boundaries in Node globals. Input: mode; output: scenario result. */
 async function fakeScenario(mode: FakeMode) {
   const originalPeer = globalThis.RTCPeerConnection, originalFetch = globalThis.fetch;
   FakePeerConnection.mode = mode;
@@ -138,7 +138,7 @@ async function fakeScenario(mode: FakeMode) {
   }
 }
 
-test('performance scenario: payload完全一致とreliable channelだけをecho成功にする', async () => {
+test('performance scenario: accept echoes only with identical payloads on reliable channels', async () => {
   const exact = await fakeScenario('exact');
   assert.ok(!('failure' in exact) && exact.sent > 0 && exact.echoed === exact.sent && exact.unexpected === 0,
     JSON.stringify(exact));

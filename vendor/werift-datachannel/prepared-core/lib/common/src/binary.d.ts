@@ -15,7 +15,7 @@ export declare class BitWriter2 {
     private _value;
     offset: bigint;
     /**
-     * 各valueがオクテットを跨いではならない
+     * Each value must fit within a single octet.
      */
     constructor(
     /**Max 32bit */

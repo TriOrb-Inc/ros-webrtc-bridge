@@ -1,4 +1,4 @@
-"""性能試験用の独立ROS echo peer。payloadを解釈せずStringを往復する。"""
+"""Independent ROS echo peer for performance tests. Round-trips Strings without interpreting payloads."""
 
 import os
 import time
@@ -11,15 +11,15 @@ from std_msgs.msg import String
 
 
 class PerformancePeer(Node):
-    """実DDS上のStringをechoする。入力: namespace。出力: ROS node。"""
+    """Echo Strings over real DDS. Input: namespace; returns a ROS node."""
 
     def __init__(self, namespace):
-        """有限depthのpublisher/subscriptionを作る。入力例: '/bridge_performance'。"""
+        """Create bounded-depth publishers and subscriptions. Example input: '/bridge_performance'."""
         super().__init__('performance_peer', namespace=namespace)
         qos = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=256,
                          reliability=ReliabilityPolicy.RELIABLE,
                          durability=DurabilityPolicy.VOLATILE)
-        # bridgeとcodecを共有せず、受信したROS Stringだけをそのまま返す。
+        # Echo only the received ROS String; share no bridge or codec implementation.
         self.publisher = self.create_publisher(String, 'output', qos)
         self.subscription = self.create_subscription(String, 'input', self.on_message, qos)
         self.received = 0
@@ -27,17 +27,17 @@ class PerformancePeer(Node):
         print('performance ROS peer ready', flush=True)
 
     def on_message(self, message):
-        """Stringをechoする。入力例: data='opaque'。出力: outputへ同じ値。"""
+        """Echo a String. Example input: data='opaque'; output: the same value on output."""
         self.received += 1
         self.publisher.publish(message)
 
     def status(self):
-        """5秒以内に匿名進捗を出す。入力: timer。出力: 累積受信数。"""
+        """Report anonymized progress within five seconds. Input: timer; output: cumulative receive count."""
         print(f'performance peer active: received={self.received}', flush=True)
 
 
 def main():
-    """単調deadlineまでspinする。入力: PERFORMANCE_PEER_TIMEOUT_SECONDS。出力: 終了。"""
+    """Spin until the monotonic deadline. Input: PERFORMANCE_PEER_TIMEOUT_SECONDS; output: termination."""
     timeout_seconds = float(os.environ.get('PERFORMANCE_PEER_TIMEOUT_SECONDS', '4000'))
     if not 1 <= timeout_seconds <= 86400:
         raise ValueError('PERFORMANCE_PEER_TIMEOUT_SECONDS must be within [1, 86400]')

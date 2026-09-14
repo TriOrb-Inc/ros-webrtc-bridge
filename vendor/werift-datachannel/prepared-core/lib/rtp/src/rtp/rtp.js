@@ -69,14 +69,14 @@ class RtpHeader {
             writable: true,
             value: 0
         });
-        /**16bit, 初期値はランダムである必要があります*/
+        /**16 bits; the initial value must be random.*/
         Object.defineProperty(this, "sequenceNumber", {
             enumerable: true,
             configurable: true,
             writable: true,
             value: 0
         });
-        /**32bit microsec (milli/1000), 初期値はランダムである必要があります*/
+        /**32-bit microseconds (milli/1000); the initial value must be random.*/
         Object.defineProperty(this, "timestamp", {
             enumerable: true,
             configurable: true,
@@ -283,7 +283,7 @@ class RtpHeader {
                         offset += extension.payload.length;
                     }
                     break;
-                case exports.ExtensionProfiles.TwoByte: // 1バイトで収まらなくなった歴史的経緯
+                case exports.ExtensionProfiles.TwoByte: // Introduced when extension values no longer fit in one byte.
                     for (const extension of this.extensions) {
                         buf.writeUInt8(extension.id, offset++);
                         buf.writeUInt8(extension.payload.length, offset++);

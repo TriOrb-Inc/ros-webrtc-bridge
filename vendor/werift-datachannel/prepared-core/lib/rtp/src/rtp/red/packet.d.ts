@@ -15,7 +15,7 @@ export declare class RedHeader {
     serialize(): Buffer<ArrayBuffer>;
 }
 interface RedHeaderField {
-    /**ヘッダーの最初のビットは、別のヘッダーブロックが続くかどうかを示す。 1の場合は、さらにヘッダーブロックが続き、0の場合は、これが最後のヘッダーブロックとなります。 */
+    /**The first header bit indicates whether another header block follows: 1 means another block follows; 0 marks the last header block. */
     fBit: number;
     blockPT: number;
     /**14bit */

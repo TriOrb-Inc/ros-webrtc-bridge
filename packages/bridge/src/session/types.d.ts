@@ -27,7 +27,7 @@ export interface Lease {
 }
 
 export interface CommandTicket {
-  /** ROS呼出直前に再検証する。入力例: (() => adapter.publish(data))、出力例: void。@param publish 同期ROS処理 @returns なし */
+  /** Revalidate immediately before the ROS call. Input: synchronous ROS operation, e.g. (() => adapter.publish(data)); returns void. */
   publish(publish: () => void): void;
 }
 

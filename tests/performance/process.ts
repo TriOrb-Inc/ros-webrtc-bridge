@@ -3,7 +3,7 @@ import { request } from 'node:https';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { ContainerState } from './types.js';
 
-/** 外部commandを有限時間で実行し、引数や出力をlogしない。入力: executable/args/timeout、出力: stdout。 */
+/** Run an external command with a deadline, without logging arguments or output. Inputs: executable/args/timeout; returns stdout. */
 export async function command(executable: string, args: readonly string[], timeoutMs = 30000,
   env: NodeJS.ProcessEnv = process.env): Promise<string> {
   return new Promise<string>((resolve, reject) => {
@@ -14,7 +14,7 @@ export async function command(executable: string, args: readonly string[], timeo
   });
 }
 
-/** HTTPS healthを単調deadlineまでpollする。入力: URL/timeout、出力: 成功時void。 */
+/** Poll HTTPS health until a monotonic deadline. Inputs: URL/timeout; returns void on success. */
 export async function healthy(url: string, timeoutMs: number): Promise<void> {
   const deadline = performance.now() + timeoutMs;
   while (performance.now() < deadline) {
@@ -34,7 +34,7 @@ export async function healthy(url: string, timeoutMs: number): Promise<void> {
   throw new Error('gateway_readiness_timeout');
 }
 
-/** docker inspectの限定状態を解析する。入力例: "true 0 false"、出力: 状態。 */
+/** Parse restricted docker inspect state. Example: "true 0 false" returns state. */
 export function parseContainerState(value: string): ContainerState {
   const match = /^(true|false)\s+(\d+)\s+(true|false)$/.exec(value.trim());
   if (!match) return Object.freeze({ available: false });
@@ -43,7 +43,7 @@ export function parseContainerState(value: string): ContainerState {
   return Object.freeze({ available: true, running: match[1] === 'true', exitCode, oomKilled: match[3] === 'true' });
 }
 
-/** containerの限定状態だけを取得する。入力: 所有container名、出力: running/exit/OOM。 */
+/** Fetch only restricted container state. Input: owned container name; returns running/exit/OOM. */
 export async function containerState(name: string): Promise<ContainerState> {
   try {
     const value = await command('docker', ['inspect', '--format', '{{.State.Running}} {{.State.ExitCode}} {{.State.OOMKilled}}', name], 5000);
@@ -53,7 +53,7 @@ export async function containerState(name: string): Promise<ContainerState> {
   }
 }
 
-/** 所有Docker objectが残っていないことを確認する。入力: name/type、出力: trueなら解放済み。 */
+/** Verify no owned Docker object remains. Inputs: name/type; true means released. */
 export async function absent(name: string, type: 'container' | 'network'): Promise<boolean> {
   try {
     const args = type === 'container' ? ['container', 'inspect', name] : ['network', 'inspect', name];

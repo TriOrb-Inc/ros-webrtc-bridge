@@ -1,26 +1,26 @@
-# 起動設定モジュール
+# Startup configuration module
 
-`parseBridgeConfig(yaml, options)`で[設定例](../../../../examples/bridge.yaml)を読み、凍結した`BridgeConfig`を返します。エラー時は位置と理由を含む`ConfigError`を投げ、設定を部分的に返しません。ROS entityを生成する処理は含みません。
+`parseBridgeConfig(yaml, options)` reads the [example configuration](../../../../examples/bridge.yaml) and returns a frozen `BridgeConfig`. On failure it throws a `ConfigError` with a location and reason; it never returns a partial configuration. It does not create ROS entities.
 
-`options.availableTypes`は型loaderが確認済みの`package/msg/Message`名の配列で、呼出側が明示します。CLIでは`app`と`ros`がbinding生成済み型を確認してregistryを構築し、`router`が認可済みcatalogを返します。ROS graphにpublisherがまだ存在しないことは拒否理由にしません。設定JSON Schemaの配布は未実装です。
+The caller explicitly supplies `options.availableTypes`, an array of `package/msg/Message` names verified by the type loader. In the CLI, `app` and `ros` verify generated bindings and build a registry; `router` returns an authorized catalog. The absence of a publisher in the ROS graph is not a rejection reason. A distributable configuration JSON Schema is not implemented yet.
 
-`topics`のkeyがWeb公開名です。`ros_topic`省略時はkeyをROS接続先にし、明示時は別名として扱います。`options.resolveTopic`にROS adapterのremap・正規化処理を注入し、その出力を`rosTopic`として返します。省略時は名前をそのまま使います。Web名はremapで変更しません。
+The keys of `topics` are public Web names. When `ros_topic` is omitted, the key is also the ROS destination; when present, the key is an alias. Inject the ROS adapter's remapping and normalization through `options.resolveTopic`; its output becomes `rosTopic`. Without it, names pass through unchanged. Remapping does not change Web names.
 
-試作のWeb名・ROS名は、ASCIIの英字またはunderscoreで始まるsegmentを`/`で連結した絶対名、最大247文字に限定します。相対名、`~`、置換式は対象外です。ROS adapterはnative entity生成前にも対象RMWの検証を行う必要があります。
+The prototype restricts Web and ROS names to absolute names of at most 247 ASCII characters: slash-separated segments beginning with a letter or underscore. Relative names, `~`, and substitution expressions are unsupported. The ROS adapter must also validate names for the active RMW before creating native entities.
 
-| 項目 | 契約 |
+| Item | Contract |
 | --- | --- |
-| YAML | 1.2 core、単一文書。重複key、alias、独自tag、未知fieldを拒否 |
-| `maxConfigBytes` | `options`で上書き。既定1048576 UTF-8 bytes |
-| `maxTopics` | `options`で上書き。既定256、少なくとも1 binding必須 |
-| `limits` | 4項目すべて必須。正の安全整数。単一message上限は16384以下、peer queueとchannel bufferに収容可能 |
-| `ros_qos` | 全項目必須。`keep_last`と正の`depth`を使用。DDS reliabilityとDC配送は独立 |
-| 配送 | `realtime`は`latest / max_messages: 1`、`reliable`は有限件数の`fifo` |
-| `max_rate_hz` | 必須。正の有限数、小数も可。rate制御自体は上位層が実装 |
-| `access.exclusive_writer` | `true`は`command_guard`必須。`false`かつguardなしは複数writer用途として許可。`false`かつguardありは拒否 |
-| `command_guard` | 指定時は`required: true`、正整数`lease_ms`、Web→ROS、volatile、排他writerが必須 |
-| 同一ROS出力 | remap後の名前で比較。型・QoS・access・guard・rate・配送・queueが異なるaliasを拒否 |
+| YAML | YAML 1.2 core, one document. Duplicate keys, aliases, custom tags, and unknown fields are rejected |
+| `maxConfigBytes` | Override in `options`; default 1048576 UTF-8 bytes |
+| `maxTopics` | Override in `options`; default 256; at least one binding is required |
+| `limits` | All four fields are required positive safe integers. A single message must be at most 16384 bytes and fit in both the peer queue and channel buffer |
+| `ros_qos` | All fields required. Uses `keep_last` and a positive `depth`. DDS reliability is independent of DataChannel delivery |
+| Delivery | `realtime` requires `latest / max_messages: 1`; `reliable` requires a finite `fifo` |
+| `max_rate_hz` | Required positive finite number; fractions are allowed. Higher layers implement rate enforcement |
+| `access.exclusive_writer` | `true` requires `command_guard`. `false` without a guard permits multiple writers. `false` with a guard is rejected |
+| `command_guard` | When present, requires `required: true`, a positive integer `lease_ms`, Web-to-ROS direction, volatile durability, and an exclusive writer |
+| Shared ROS output | Compare remapped names. Reject aliases with different types, QoS, access, guards, rates, delivery, or queues |
 
-認可情報を省略してもpublish権限は付与しません。認証policy、process全体容量、transport合意上限、native callbackの滞留、実際のrate制御は上位層の責務です。設定を検証できることと、設定された制限を実行時にすべて強制できることは別です。
+Omitting authorization information does not grant publish permission. Authentication policy, process-wide capacity, negotiated transport limits, native callback backlog, and actual rate enforcement belong to higher layers. Validating a configuration does not establish that every configured limit is enforced at runtime.
 
-[設計書](../../../../docs/design.md)と[テスト方針](../../../../TESTS.md)を参照してください。
+See the [design](../../../../docs/design.md) and [test policy](../../../../TESTS.md).

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ament の lib/<package> 配下にある wrapper から、同梱 runtime を絶対 file URL で
-# 読み込む。BRIDGE_* と ROS_* は呼出元の環境をそのまま引き継ぐ。
+# Load the bundled runtime using an absolute file URL from the wrapper under
+# ament's lib/<package>. Inherit BRIDGE_* and ROS_* directly from the caller's environment.
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 entrypoint="${script_dir}/dist/app/cli.js"
 

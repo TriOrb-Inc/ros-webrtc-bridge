@@ -32,14 +32,14 @@ export const settings: AppSettings = { credential: randomBytes(32).toString('hex
   maxConfigBytes: 1048576, subscribeTopics: ['/out'], publishScopes: ['command'], timeoutMs: 1000,
   maxSdpBytes: 8192, requestTimeoutMs: 100, routerLimits: { maxHandles: 8, maxRequests: 8, requestTtlMs: 30000, maxControlRateHz: 100 } };
 
-/** eventの登録とemitを観測可能にする。入力型、出力signal。例: emit('open') → listener呼出。 */
+/** Observe event registration and emission. Input: type; output: signal. Example: emit('open') invokes listeners. */
 export function signal<T extends unknown[]>() {
   const callbacks = new Set<(...args: T) => void>();
   return { subscribe(callback: (...args: T) => void) { callbacks.add(callback); return { unSubscribe() { callbacks.delete(callback); } }; },
     emit(...args: T) { for (const callback of callbacks) callback(...args); } };
 }
 
-/** peer facadeを作る。入力なし、出力peerと観測channel。例: open() → 3 channel通知。 */
+/** Create a peer facade. No input; returns peer and observed channels. Example: open() announces three channels. */
 export function fakePeer() {
   const channels = ['ros.control.v1', 'ros.reliable.v1', 'ros.realtime.v1'].map(label => ({ label,
     ordered: label !== 'ros.realtime.v1', negotiated: false, maxRetransmits: label === 'ros.realtime.v1' ? 0 : null,
@@ -53,7 +53,7 @@ export function fakePeer() {
   return peer;
 }
 
-/** ROS/HTTPS境界を置換する。入力なし、出力factoryと操作記録。 */
+/** Replace ROS/HTTPS boundaries. No input; returns factories and operation records. */
 export function fixture() {
   const peers: ReturnType<typeof fakePeer>[] = [];
   let handle!: (request: IncomingMessage, response: ServerResponse) => Promise<void>;
@@ -66,7 +66,7 @@ export function fixture() {
   const factories: AppFactories = { initialize: async () => backend, clock: () => 10, onError: () => { events.push('error'); },
     makePeer() { const peer = fakePeer(); peers.push(peer); return peer as Peer; },
     async listen(handler) { handle = handler; return { async close() { events.push('http_close'); } }; } };
-  /** signalingへofferを入れる。入力なし、出力status。認証はfixture乱数を使用する。 */
+  /** Submit a signaling offer. No input; returns status. Authentication uses fixture-generated random values. */
   async function offer() {
     const request = Object.assign(new EventEmitter(), { method: 'POST', url: '/offer', headers: {
       authorization: `Bearer ${settings.credential}`, 'content-type': 'application/json' } });

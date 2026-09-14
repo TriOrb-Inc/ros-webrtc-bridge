@@ -7,7 +7,7 @@ export interface Gate {
   readonly pass: boolean;
 }
 
-/** 実測値と安全/provisional budgetを比較する。入力: config/reports/state/cleanup、出力: 分類付きgate。 */
+/** Compare measurements against safety and provisional budgets. Inputs: config/reports/state/cleanup; returns classified gates. */
 export function evaluateGates(config: PerformanceConfig, browser: BrowserRunReport | undefined,
   resources: ResourceReport | undefined, gateway: ContainerState, peer: ContainerState,
   cleanup: boolean): Readonly<Record<string, Gate>> {
@@ -19,7 +19,7 @@ export function evaluateGates(config: PerformanceConfig, browser: BrowserRunRepo
   const noOom = gateway.available && gateway.oomKilled === false && peer.available && peer.oomKilled === false;
   const enoughSamples = resources !== undefined && resources.samples >= 2;
   const enoughObservation = resources !== undefined && resources.observationSeconds >= 1;
-  /** 同じ形のgateを作り、report側でclassを失わない。入力: class/値/budget/pass、出力: Gate。 */
+  /** Create consistently shaped gates, retaining classifications in reports. Inputs: class/value/budget/pass; returns a Gate. */
   const gate = (kind: Gate['class'], measured: Gate['measured'], budget: Gate['budget'], pass: boolean): Gate =>
     Object.freeze({ class: kind, measured, budget, pass });
   return Object.freeze({

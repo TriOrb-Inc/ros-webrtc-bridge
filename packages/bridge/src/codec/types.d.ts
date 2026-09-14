@@ -1,4 +1,4 @@
-/** ROSの型情報を呼び出し側が明示する。自動推論や型ロードは行わない。 */
+/** The caller supplies explicit ROS type information. No type inference or loading is performed. */
 export type Field =
   | { readonly kind: 'boolean' }
   | { readonly kind: 'string'; readonly maxLength?: number }
@@ -8,16 +8,16 @@ export type Field =
   | ({ readonly kind: 'array'; readonly element: Field } & LengthBounds)
   | { readonly kind: 'object'; readonly fields: Readonly<Record<string, Field>> };
 
-/** 固定長とbounded sequenceの長さ。両方指定したときも両方を満たす。 */
+/** Fixed and bounded sequence lengths. When both are specified, both must hold. */
 export interface LengthBounds {
   readonly length?: number;
   readonly maxLength?: number;
 }
 
-/** JSONへ損失なく出力できるcodecのwire値。 */
+/** Codec wire values that can be represented losslessly in JSON. */
 export type JsonValue = boolean | string | number | JsonValue[] | { [key: string]: JsonValue };
 
-/** 呼び出し側の設定から上書きする資源上限。rootのdepthは0とする。 */
+/** Resource limits overridden by caller configuration. The root has depth zero. */
 export interface CodecOptions {
   readonly maxDepth: number;
   readonly maxArrayLength: number;
@@ -27,7 +27,7 @@ export interface CodecOptions {
   readonly allowNonFinite: boolean;
 }
 
-/** transportやROS adapterからの入力は型付けを信用せずunknownで受け取る。 */
+/** Accept transport and ROS adapter inputs as unknown; do not trust static input types. */
 export interface Codec {
   encode(native: unknown): JsonValue;
   decode(wire: unknown): unknown;

@@ -5,14 +5,14 @@ import { RequestCache } from './request-cache.js';
 import type { Channel, Publisher, RouterBinding, RouterOptions, Subscription, Wire } from './types.js';
 export type { Channel, RouterBinding, RouterOptions } from './types.js';
 
-/** 認証済み1 peerのwire操作を設定・codec・ROSへ接続する。 */
+/** Connect wire operations of one authenticated peer to configuration, codecs, and ROS. */
 export class SessionRouter {
   readonly sessionId: string;
   private readonly options: RouterOptions;
   private readonly entries = new Map<string, RouterBinding>();
   private readonly subscriptions = new Map<string, Subscription>();
   private readonly publishers = new Map<string, Publisher>();
-  // controlとdataを同じbyte budgetで保持し、cacheは別の有限budgetを持つ。
+  // Control and data share a byte budget; the cache has a separate finite budget.
   private readonly queue: DeliveryQueue;
   private readonly cache: RequestCache;
   private readonly maxBytes: number;
@@ -23,16 +23,16 @@ export class SessionRouter {
   private welcomed = false;
   private closed = false;
 
-  /** transportに閉鎖状態を知らせる。入力なし、出力例: true。@returns router資源解放を開始済みならtrue */
+  /** Report closure to the transport. No input; returns true once router resource cleanup has started. */
   get isClosed(): boolean { return this.closed; }
 
-  /** 起動済みadapterと共有guardを結ぶ。入力例: RouterOptions、出力例: router。@param options 検証済み設定とI/O @returns router */
+  /** Connect the running adapter and shared guard. Input: RouterOptions with validated config and I/O; returns a router. */
   constructor(options: RouterOptions) {
     for (const value of [options.limits.maxHandles, options.limits.maxRequests, options.limits.requestTtlMs, options.limits.maxControlRateHz]) positiveLimit(value);
     identifier(options.epoch);
     if (typeof options.clock !== 'function' || typeof options.send !== 'function') throw new Error('invalid_callback');
     this.options = { ...options, limits: { ...options.limits } };
-    // 外部mutationでTopic表が入れ替わらないよう、検証済みentryをコピーする。
+    // Copy validated entries so external mutation cannot replace the topic table.
     for (const entry of options.bindings) {
       if (!options.config.topics.includes(entry.binding) || this.entries.has(entry.binding.publicName)) throw new Error('invalid_binding');
       identifier(entry.schemaId);
@@ -46,7 +46,7 @@ export class SessionRouter {
     this.sessionId = options.guard.openSession(options.epoch);
   }
 
-  /** 入力を検証して操作を実行する。入力例: (control,hello bytes)、出力例: welcome送信。@param channel label @param raw bytes @returns なし */
+  /** Validate input and execute an operation. Inputs: channel label and raw bytes, such as control and hello; sends welcome and returns void. */
   receive(channel: string, raw: Uint8Array): void {
     if (this.closed) return;
     let requestId: string | undefined;
@@ -54,7 +54,7 @@ export class SessionRouter {
       if (!isChannel(channel)) throw new Error('invalid_channel');
       if (channel === CONTROL) this.controlRate();
       const wire = parseWire(raw, this.maxBytes);
-      // 不正idをエラー応答へコピーしない。control rateは再送にも適用する。
+      // Do not copy invalid IDs into error responses. Control rate limits also apply to retransmissions.
       if (wire.id !== undefined) requestId = textField(wire, 'id');
       if (channel !== CONTROL) {
         this.publish(channel, wire);
@@ -63,17 +63,17 @@ export class SessionRouter {
       }
       this.flush();
     } catch {
-      // codec/nativeの例外本文をwireへ漏らさず、当該requestの拒否だけを通知する。
+      // Report only request rejection; never leak codec or native exception text onto the wire.
       this.error(requestId);
     }
   }
 
-  /** backpressure解除時にcontrol優先で再送を試みる。入力例: ()、出力例: 送信可能分だけ送信。@returns なし */
+  /** Retry sending when backpressure clears, prioritizing control. No input; sends what can be sent and returns void. */
   flush(): void {
     if (this.closed) return;
     if (!this.drain('control', CONTROL)) return;
     for (const [id, subscription] of this.subscriptions) {
-      // buffer待機中のACL撤回を、次のsampleを待たず送信直前に反映する。
+      // Apply ACL revocation immediately before sending buffered data, without waiting for another sample.
       try { this.entry(subscription.entry.binding.publicName, 'subscribe'); }
       catch {
         if (this.subscriptions.has(id)) this.removeSubscription(id);
@@ -84,31 +84,31 @@ export class SessionRouter {
     }
   }
 
-  /** peerの全listener/handle/queueを解放する。入力例: ()、出力例: void。@returns なし */
+  /** Release all peer listeners, handles, and queues. No input; returns void. */
   close(): void {
     if (this.closed) return;
     this.closed = true;
     this.options.guard.revokeSession(this.sessionId);
     const failures: unknown[] = [];
-    // 1 listenerの解放失敗でも残る資源の解放を継続する。
+    // Continue releasing remaining resources even if one listener fails to clean up.
     for (const subscription of this.subscriptions.values()) {
       try { subscription.unsubscribe(); } catch (error) { failures.push(error); }
     }
     this.subscriptions.clear(); this.publishers.clear();
     this.queue.clear(); this.cache.clear();
-    // ROS callback起点の閉鎖もtransportへ知らせる。通知先は非throw契約とする。
+    // Notify the transport of closure initiated by a ROS callback. Notification callbacks must not throw.
     this.options.onClosed?.();
     if (failures.length > 0) throw new AggregateError(failures, 'cleanup_failed');
   }
 
-  /** control operationを実行する。入力例: subscribe、出力例: subscribed。@param wire envelope @param id request識別子 @returns なし */
+  /** Execute a control operation. Inputs: wire envelope and request ID; for example subscribe sends subscribed. Returns void. */
   private control(wire: Wire, id: string | undefined): void {
     if (wire.op === 'hello') {
       fields(wire, []);
       if (this.welcomed) throw new Error('already_welcomed');
       const catalog = [...this.entries.values()].filter((entry) => this.allowed(entry, entry.binding.direction === 'ros_to_web' ? 'subscribe' : 'publish'))
         .map(({ binding, schemaId }) => ({ topic: binding.publicName, ros_type: binding.rosType, direction: binding.direction, delivery: binding.delivery, schema_id: schemaId }));
-      // welcomeをqueueへ入れられた後だけ以降の操作を解禁する。
+      // Allow subsequent operations only after welcome has been queued.
       this.respond({ v: 1, op: 'welcome', epoch: this.options.epoch, catalog });
       this.welcomed = true;
       return;
@@ -126,13 +126,13 @@ export class SessionRouter {
     if (cached !== undefined) { this.queue.enqueue('control', cached); return; }
     this.cache.reserve(this.maxBytes + input.length * 2);
     const response = this.operation(wire, id);
-    // 応答をcacheへ入れてから送信し、送信が遅れても再実行しない。
+    // Cache responses before sending so delayed delivery cannot cause re-execution.
     const bytes = encodeWire(response, this.maxBytes);
     this.cache.store(id, input, bytes, now);
     this.queue.enqueue('control', bytes);
   }
 
-  /** request IDを伴う操作を処理する。入力例: advertise、出力例: advertised。@param wire envelope @param id request @returns 応答 */
+  /** Process an operation with a request ID. Inputs: wire envelope and request ID; for example advertise returns advertised. */
   private operation(wire: Wire, id: string): Wire {
     if (wire.op === 'subscribe' || wire.op === 'advertise') {
       fields(wire, ['id', 'topic']);
@@ -166,7 +166,7 @@ export class SessionRouter {
     throw new Error('unknown_operation');
   }
 
-  /** ROSの論理listenerを登録する。入力例: (entry,'r1')、出力例: subscribed。@param entry binding @param requestId request @returns 応答 */
+  /** Register a logical ROS listener. Inputs: binding entry and request ID, e.g. (entry,'r1'); returns a subscribed response. */
   private subscribe(entry: RouterBinding, requestId: string): Wire {
     const id = this.id();
     this.queue.register(id, entry.binding.queue.policy === 'latest' ? 'latest' : 'reliable', entry.binding.queue.maxMessages);
@@ -177,7 +177,7 @@ export class SessionRouter {
     return { v: 1, op: 'subscribed', id: requestId, stream_id: id, epoch: this.options.epoch, schema_id: entry.schemaId };
   }
 
-  /** ready後の新規ROS sampleだけを配信する。入力例: (stream,native)、出力例: message送信。@param id stream @param native ROS値 @returns なし */
+  /** Deliver only new ROS samples after ready. Inputs: stream ID and native ROS value; sends a message and returns void. */
   private sample(id: string, native: unknown): void {
     const subscription = this.subscriptions.get(id);
     if (subscription === undefined || !subscription.ready) return;
@@ -186,7 +186,7 @@ export class SessionRouter {
       const now = this.now();
       if (now < subscription.nextAt) return;
       subscription.nextAt = now + 1000 / entry.binding.maxRateHz;
-      // uint64を使い切ったstreamはwrapせず停止する。
+      // Stop streams that exhaust uint64 sequence numbers instead of wrapping.
       sequence(String(subscription.seq));
       const data = entry.codec.encode(native);
       const bytes = encodeWire({ v: 1, op: 'message', stream_id: id, epoch: this.options.epoch, seq: String(subscription.seq++), data }, this.maxBytes);
@@ -198,7 +198,7 @@ export class SessionRouter {
     }
   }
 
-  /** Web publishを同期ROS境界まで検証する。入力例: (realtime,publish)、出力例: ack。@param channel label @param wire envelope @returns なし */
+  /** Validate Web publishing through the synchronous ROS boundary. Inputs: channel label and wire envelope; sends ack and returns void. */
   private publish(channel: Channel, wire: Wire): void {
     fields(wire, ['id', 'handle', 'epoch', 'seq', 'lease_id', 'data']);
     if (!this.welcomed || wire.op !== 'publish' || wire.epoch !== this.options.epoch) throw new Error('invalid_publish');
@@ -212,7 +212,7 @@ export class SessionRouter {
     const native = entry.codec.decode(wire.data);
     const ticket = publisher.guarded ? this.options.guard.prepare({ sessionId: this.sessionId, epoch: this.options.epoch, handle, leaseId: textField(wire, 'lease_id'), seq: String(seq) }) : undefined;
     if (!publisher.guarded && wire.lease_id !== undefined) throw new Error('unexpected_lease');
-    // 受信sequence/rateはROS失敗でも巻き戻さない。非同期待機は作らない。
+    // Do not roll back received sequence or rate state after ROS failure. Introduce no asynchronous waits.
     publisher.seq = seq; publisher.nextAt = now + 1000 / entry.binding.maxRateHz;
     const send = (): void => {
       this.entry(entry.binding.publicName, 'publish');
@@ -223,7 +223,7 @@ export class SessionRouter {
     this.respond({ v: 1, op: 'published_to_ros', handle, seq: String(seq) });
   }
 
-  /** Topicと方向と権限を照合する。入力例: ('/odom','subscribe')、出力例: entry。@param name 公開名 @param operation 操作 @returns binding */
+  /** Check topic, direction, and permissions. Inputs: public name and operation, e.g. ('/odom','subscribe'); returns a binding. */
   private entry(name: string, operation: 'subscribe' | 'publish'): RouterBinding {
     const entry = this.entries.get(name);
     if (entry === undefined || !this.allowed(entry, operation)) throw new Error('unauthorized');
@@ -231,27 +231,27 @@ export class SessionRouter {
     return entry;
   }
 
-  /** default denyを適用する。入力例: (entry,'publish')、出力例: true/false。@param entry binding @param operation 操作 @returns 許可 */
+  /** Apply default-deny authorization. Inputs: binding and operation, e.g. (entry,'publish'); returns a permission boolean. */
   private allowed(entry: RouterBinding, operation: 'subscribe' | 'publish'): boolean {
     const direction = operation === 'subscribe' ? 'ros_to_web' : 'web_to_ros';
     return entry.binding.direction === direction && this.options.authorize?.(entry.binding, operation) === true;
   }
 
-  /** peer所有publisherを取得する。入力例: handle、出力例: publisher。@param handle ID @returns 状態 */
+  /** Get a peer-owned publisher. Input: handle ID; returns publisher state. */
   private publisher(handle: string): Publisher {
     const publisher = this.publishers.get(handle);
     if (publisher === undefined) throw new Error('unknown_handle');
     return publisher;
   }
 
-  /** peer所有streamを取得する。入力例: stream ID、出力例: subscription。@param id ID @returns 状態 */
+  /** Get a peer-owned stream. Input: stream ID; returns subscription state. */
   private subscription(id: string): Subscription {
     const subscription = this.subscriptions.get(id);
     if (subscription === undefined) throw new Error('unknown_stream');
     return subscription;
   }
 
-  /** listenerと送信待ちを破棄する。入力例: stream ID、出力例: void。@param id ID @returns なし */
+  /** Discard a listener and pending sends. Input: stream ID; returns void. */
   private removeSubscription(id: string): void {
     const subscription = this.subscription(id);
     this.subscriptions.delete(id);
@@ -259,7 +259,7 @@ export class SessionRouter {
     subscription.unsubscribe();
   }
 
-  /** 成功送信した先頭だけを取り除く。入力例: (control,label)、出力例: true。@param id queue @param channel label @returns 空ならtrue */
+  /** Remove only successfully sent queue heads. Inputs: queue ID and channel label; returns true when empty. */
   private drain(id: string, channel: Channel): boolean {
     for (;;) {
       const next = this.queue.peek(id);
@@ -269,27 +269,27 @@ export class SessionRouter {
     }
   }
 
-  /** control応答を有界queueへ格納する。入力例: wire、出力例: void。@param wire 応答 @returns なし */
+  /** Store a control response in a bounded queue. Input: wire response; returns void. */
   private respond(wire: Wire): void {
     if (this.closed) throw new Error('router_closed');
     this.queue.enqueue('control', encodeWire(wire, this.maxBytes));
   }
 
-  /** 拒否を通知し、control溢れではpeer資源を解放する。入力例: r1、出力例: error。@param id request ID @returns なし */
+  /** Report rejection and release peer resources on control overflow. Input: request ID; sends an error and returns void. */
   private error(id: string | undefined): void {
     if (this.closed) return;
     try { this.respond({ v: 1, op: 'error', id, code: 'request_rejected' }); this.flush(); }
     catch { this.close(); }
   }
 
-  /** control floodを1秒windowで制限する。入力例: ()、出力例: void。@returns なし */
+  /** Limit control floods in a one-second window. No input; returns void. */
   private controlRate(): void {
     const window = Math.floor(this.now() / 1000);
     if (window !== this.controlWindow) { this.controlWindow = window; this.controlCount = 0; }
     if (++this.controlCount > this.options.limits.maxControlRateHz) throw new Error('control_rate');
   }
 
-  /** 副作用のない単調clockを検証する。入力例: ()、出力例: ms。@returns 時刻 */
+  /** Validate a side-effect-free monotonic clock. No input; returns time in milliseconds. */
   private now(): number {
     const value = this.options.clock();
     if (!Number.isFinite(value) || value < this.lastTime || value > Number.MAX_SAFE_INTEGER - this.options.limits.requestTtlMs) throw new Error('invalid_clock');
@@ -297,6 +297,6 @@ export class SessionRouter {
     return value;
   }
 
-  /** peer内で再利用しない識別子を生成する。入力例: ()、出力例: uuid:1。@returns ID */
+  /** Generate an identifier never reused within the peer. No input; returns an ID such as uuid:1. */
   private id(): string { this.nextId += 1n; return `${this.sessionId}:${this.nextId}`; }
 }

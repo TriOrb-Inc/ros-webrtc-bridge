@@ -1,14 +1,14 @@
-# ROS JSON codecモジュール
+# ROS JSON codec module
 
-## 目的・対象範囲
+## Purpose and scope
 
-`ros-json-v1`のfield変換を、ROSやWebRTCに依存せず検証するためのモジュールです。`createCodec(descriptor, options)`が`encode(native: unknown)`と`decode(wire: unknown)`を返します。不正入力はpayloadを含まない`TypeError`で拒否します。
+Validate `ros-json-v1` field conversion independently of ROS and WebRTC. `createCodec(descriptor, options)` returns `encode(native: unknown)` and `decode(wire: unknown)`. Invalid input throws a `TypeError` that does not include the payload.
 
-## 現状
+## Current behavior
 
-呼び出し側が明示した`Field` descriptorでboolean、string、8/16/32/64bit整数、float32/64、uint8列、固定長・bounded配列、nested objectを変換します。descriptorは信頼できる開発者・型生成器が構築する内部APIです。長さ・整数width・深さ等の不変条件はfactoryで検証し、snapshotによって生成後の変更から隔離します。外部から任意のdescriptorを受け付けるAPIやJSON Schema validatorではありません。
+Explicit `Field` descriptors drive conversion of booleans, strings, 8/16/32/64-bit integers, float32/64, uint8 sequences, fixed/bounded arrays, and nested objects. Descriptors are internal APIs constructed by trusted developers or type generators. The factory validates length, integer-width, depth, and other invariants, then snapshots the descriptor to isolate subsequent changes. It is neither an API for accepting arbitrary external descriptors nor a JSON Schema validator.
 
-ROSの型ロード・rclnodejs値の正規化は隣接`ros`、schema hashは`app`、wire envelopeは`router`、接続は`transport`が担当します。codecはこれらをimportしません。ブラウザSDKは未実装で、Nodeの`Buffer`を使う本codecをブラウザ対応済みとは扱いません。
+The adjacent `ros` module handles ROS type loading and rclnodejs normalization, `app` handles schema hashes, `router` handles wire envelopes, and `transport` handles connections. The codec imports none of them. A browser SDK is unimplemented; this codec uses Node `Buffer` and is not claimed to support browsers.
 
 ```typescript
 import { createCodec } from './index.js';
@@ -21,27 +21,27 @@ codec.encode({ counter: 42n, label: '00123' }); // {counter:'42', label:'00123'}
 codec.decode({ counter: '42', label: '00123' }); // {counter:42n, label:'00123'}
 ```
 
-## 実装上の判断
+## Implementation decisions
 
-- 64bit整数のnative値は`bigint`、wire値はcanonical decimal stringです。先頭`+`、先頭ゼロ、`-0`、空白、指数表記を拒否します。通常のstringは推論変換しません。
-- 有限float32はIEEE 754 binary32へ丸め、丸めによるoverflowを拒否します。float64は有限numberをそのまま保持します。非有限floatのwire値は`"NaN"`、`"Infinity"`、`"-Infinity"`だけを受け付けます。JSON parse後の非有限numberも拒否します。commandの両方向変換では必ず`allowNonFinite: false`を渡します。
-- stringの`maxLength`はUTF-8 byte数です。孤立surrogateを拒否し、多byte文字をUTF-16 code unit数で数えません。uint8列はnative側`Uint8Array`（Node `Buffer`を含む）、wire側はpadding付き標準base64です。URL-safe表現、空白、非canonical padding bitを拒否します。
-- 配列の`length`は完全一致、`maxLength`は上限です。objectは全field必須で未知fieldを拒否します。class instance、symbol、非列挙property、getter/setter、配列hole・追加propertyを暗黙に無視しません。adapterはplain objectを渡す必要があります。
-- 出力の配列・object・byte列は入力と独立して生成します。`__proto__`もown propertyとして扱い、prototypeの書き換えを起こしません。内部APIへ悪意あるProxy等の実行可能オブジェクトを注入することは対象外です。
+- Native 64-bit integers are `bigint`; wire values are canonical decimal strings. Leading `+`, leading zeroes, `-0`, whitespace, and exponent notation are rejected. Ordinary strings are not inferred or converted.
+- Finite float32 values are rounded to IEEE 754 binary32; overflow is rejected. Finite float64 numbers are preserved. Only `"NaN"`, `"Infinity"`, and `"-Infinity"` are accepted as non-finite wire values. Non-finite numbers resulting from JSON parsing are also rejected. Both command conversion directions must use `allowNonFinite: false`.
+- String `maxLength` counts UTF-8 bytes. Lone surrogates are rejected; multibyte strings are not measured in UTF-16 code units. Native uint8 sequences are `Uint8Array` (including Node `Buffer`); wire values are padded standard base64. URL-safe encodings, whitespace, and noncanonical padding bits are rejected.
+- Array `length` requires an exact match; `maxLength` sets an upper bound. All object fields are required and unknown fields are rejected. Class instances, symbols, non-enumerable properties, getters/setters, array holes, and extra array properties are not silently ignored. The adapter must supply plain objects.
+- Output arrays, objects, and byte sequences are independent of the inputs. `__proto__` is treated as an own property without altering prototypes. Injecting executable objects such as malicious Proxies into this internal API is outside scope.
 
-| option | 既定値 | 単位・適用範囲 |
+| Option | Default | Unit and scope |
 | --- | --- | --- |
-| `maxDepth` | 32 | rootを0としたdescriptor/payloadの深さ |
-| `maxNodes` | 32768 | descriptorまたは1回の変換で訪問するfield数。containerも1として数える |
-| `maxArrayLength` | 4096 | 各通常配列の要素数 |
-| `maxStringBytes` | 16384 | 各stringのUTF-8 bytes |
-| `maxByteLength` | 16384 | 各uint8列の復号後bytes。復号前にも対応するbase64長を検査 |
-| `allowNonFinite` | true | telemetry向け。commandにはfalseを指定 |
+| `maxDepth` | 32 | Descriptor/payload depth, with the root at zero |
+| `maxNodes` | 32768 | Fields visited in one descriptor or conversion; containers count as one |
+| `maxArrayLength` | 4096 | Elements in each ordinary array |
+| `maxStringBytes` | 16384 | UTF-8 bytes per string |
+| `maxByteLength` | 16384 | Decoded bytes per uint8 sequence; the corresponding base64 length is also checked before decoding |
+| `allowNonFinite` | true | For telemetry; set false for commands |
 
-すべて`createCodec`の第2引数で上書きできます。数値上限は正のsafe integerです。schemaの長さ制約は0も許容します。schema上限とcodec上限の両方を満たす値だけを受理します。最大深さなどの設定値は呼び出し側で用途に合わせて制限し、巨大な上限によるメモリ・stack使用を許可しないでください。これらは個々のtreeの変換上限であり、envelope込みのUTF-8 byte上限やprocess全体のメモリ上限の代わりにはなりません。
+Override all options through the second argument to `createCodec`. Numeric limits must be positive safe integers; schema length constraints may be zero. Values must satisfy both schema and codec limits. Configure depth and similar limits for the application rather than permitting memory/stack exhaustion through oversized limits. These bound individual trees, not total envelope UTF-8 bytes or process-wide memory.
 
-## 目標・関連
+## Goals and related documentation
 
-Humble/Jazzyの独立nodeとのString/Twist契約を接続試験で検証しています。全ROS型・全bounded型のnative互換性は別途評価が必要です。schema IDの正規化・hash契約は`app`のREADMEを参照してください。
+String/Twist contracts are verified by connection tests against independent Humble/Jazzy nodes. Native compatibility of all ROS and bounded types needs separate evaluation. See the `app` README for schema ID normalization and hashing.
 
-[設計書 §8](../../../../docs/design.md#8-ros型とserialization)と[テスト方針](../../../../TESTS.md)が上位仕様です。`tests/unit/codec/`はTYPE-01の単体範囲、descriptor検証、SEC-01のtree上限を扱います。encode/decodeは独立したgolden期待値で検証し、実ROS・browserでの互換性は別途確認します。
+The [design §8](../../../../docs/design.md#8-ros-types-and-serialization) and [test policy](../../../../TESTS.md) are the higher-level specifications. `tests/unit/codec/` covers TYPE-01 unit behavior, descriptor validation, and SEC-01 tree limits. Encode/decode are checked against independent golden values; real ROS/browser compatibility is verified separately.

@@ -8,20 +8,20 @@ import { TopicRosAdapter } from '../../packages/bridge/src/ros/adapter.js';
 import { descriptorFromRos } from '../../packages/bridge/src/ros/descriptor.js';
 import { createRclnodejsBackend, type RclModule } from '../../packages/bridge/src/ros/rclnodejs.js';
 
-/** 短いpoll区間で独立対向nodeの応答を待つ。入力: 操作,完了条件,deadline。出力: Promise<void>。 */
+/** Poll briefly for independent peer responses. Inputs: operation, completion predicate, deadline; returns Promise<void>. */
 async function exchange(send: () => void, done: () => boolean, deadlineMs: number): Promise<void> {
   const deadline = performance.now() + deadlineMs;
   let nextReport = performance.now();
   while (!done()) {
     if (performance.now() >= deadline) throw new Error('independent_ros_response_timeout');
     send();
-    // DDS discoveryを固定sleepで成功扱いせず、応答を観測できるまで有界に再試行する。
+    // Do not assume DDS discovery succeeds after a fixed sleep; retry within a deadline until observing a response.
     if (performance.now() >= nextReport) { console.log('waiting for independent ROS response'); nextReport += 4000; }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
 
-test('実ROS TYPE-01/CFG-02: 連鎖remapを一度だけ適用して独立rclpyと交換する', { timeout: 45000 }, async () => {
+test('Real ROS TYPE-01/CFG-02: apply chained remapping once and exchange data with independent rclpy', { timeout: 45000 }, async () => {
   console.log(`native ROS test: distro=${process.env.ROS_DISTRO}, arch=${process.arch}, node=${process.version}`);
   const peer = spawn('python3', ['/bridge/tests/ros/peer.py'], { stdio: 'inherit', env: { ...process.env, ROS_TEST_TIMEOUT_SECONDS: '40' } });
   let adapter: TopicRosAdapter | undefined;
@@ -32,7 +32,7 @@ test('実ROS TYPE-01/CFG-02: 連鎖remapを一度だけ適用して独立rclpy�
     args: ['--ros-args', '-r', '/bridge_test/input_alias:=/bridge_test/in', '-r', '/bridge_test/in:=/bridge_test/wrong_input',
       '-r', '/bridge_test/output_alias:=/bridge_test/out', '-r', '/bridge_test/out:=/bridge_test/wrong_output'], onError: (error) => errors.push(error),
   });
-  // public名を保ちながらnative remap結果を出力Topicへ適用する。
+  // Preserve public names while applying native remapping to output topics.
   assert.equal(backend.resolveTopic('/bridge_test/input_alias'), '/bridge_test/in');
   const bindings: TopicBinding[] = [
     { publicName: '/input', rosTopic: '/bridge_test/input_alias', rosType: 'std_msgs/msg/String', direction: 'web_to_ros' },
@@ -54,8 +54,8 @@ test('実ROS TYPE-01/CFG-02: 連鎖remapを一度だけ適用して独立rclpy�
     adapter.subscribe('/output', (value) => { echoed = value; });
     adapter.subscribe('/observed', (value) => { observed = JSON.parse((value as { data: string }).data); });
     adapter.subscribe('/custom_out', (value) => { customEchoed = value; });
-    // 固有markerと完全Twistを独立rclpy側の受信結果から検証する。
-    const marker = { data: `独立ROS-${process.pid}` };
+    // Verify the unique marker and complete Twist against independent rclpy observations.
+    const marker = { data: `\u72ec\u7acbROS-${process.pid}` };
     await exchange(() => adapter!.publish('/input', marker), () => echoed !== undefined, 15000);
     assert.deepEqual(echoed, marker);
     const command = { linear: { x: 0.125, y: -0.5, z: 0 }, angular: { x: 0, y: 0, z: -0.25 } };
@@ -71,7 +71,7 @@ test('実ROS TYPE-01/CFG-02: 連鎖remapを一度だけ適用して独立rclpy�
   } finally {
     try { adapter?.close(); } finally {
     peer.kill('SIGTERM');
-    // 対向processの待機も有限にし、終了しない場合は明示的に強制終了する。
+    // Bound waiting for the peer process too; explicitly terminate it if it does not exit.
     const code = await new Promise<number | null>((resolve) => {
       const timer = setTimeout(() => { peer.kill('SIGKILL'); resolve(null); }, 2000);
       peer.once('exit', (value) => { clearTimeout(timer); resolve(value); });

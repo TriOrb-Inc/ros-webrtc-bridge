@@ -4,7 +4,7 @@ import type { ResourceReport } from './types.js';
 
 interface Sample { readonly atMs: number; readonly cpuPercent: number; readonly rssMiB: number }
 
-/** Dockerの容量表記をMiBへ変換する。入力例: 1GiB、出力: 1024。 */
+/** Convert Docker size notation to MiB. Example: 1GiB returns 1024. */
 function mebibytes(value: string): number {
   const match = /^(\d+(?:\.\d+)?)\s*(B|kB|KB|KiB|MB|MiB|GB|GiB)$/.exec(value.trim());
   if (!match) throw new Error('invalid_resource_sample');
@@ -13,7 +13,7 @@ function mebibytes(value: string): number {
   return Number(match[1]) * factors[match[2]!]!;
 }
 
-/** docker statsの匿名CPU/RSSだけを解析する。入力: format済み1行、出力: sample値。 */
+/** Parse only anonymized CPU/RSS from docker stats. Input: one formatted line; returns sample values. */
 export function parseResourceSample(value: string): Omit<Sample, 'atMs'> {
   const match = /^(\d+(?:\.\d+)?)%\|([^|/]+)\s*\//.exec(value.trim());
   if (!match) throw new Error('invalid_resource_sample');
@@ -22,7 +22,7 @@ export function parseResourceSample(value: string): Omit<Sample, 'atMs'> {
   return { cpuPercent, rssMiB };
 }
 
-/** 最小二乗のRSS傾きをMiB/hourで返す。入力: 単調時刻sample、出力: growth rateまたは欠測null。 */
+/** Compute least-squares RSS slope in MiB/hour. Input: monotonic-time samples; returns growth rate or null for missing data. */
 export function resourceGrowthPerHour(samples: readonly Sample[]): number | null {
   if (samples.length < 2) return null;
   const origin = samples[0]!.atMs;
@@ -34,7 +34,7 @@ export function resourceGrowthPerHour(samples: readonly Sample[]): number | null
   return denominator === 0 ? null : numerator / denominator;
 }
 
-/** 外部docker statsでgateway cgroupを周期sampleする。start/stopの所有権はorchestratorにある。 */
+/** Periodically sample the Gateway cgroup using external docker stats. The orchestrator owns start/stop. */
 export class ResourceSampler {
   private readonly samples: Sample[] = [];
   private stopping = false;
@@ -42,16 +42,16 @@ export class ResourceSampler {
   private running: Promise<void> | undefined;
   private readonly waitController = new AbortController();
 
-  /** sampling loopを開始する。入力: container名/間隔ms、出力なし。 */
+  /** Start the sampling loop. Inputs: container name/interval ms; no output. */
   start(container: string, intervalMs: number): void {
     if (this.running !== undefined) throw new Error('resource_sampler_already_started');
     this.running = this.loop(container, intervalMs);
   }
 
-  /** samplingを停止し集計する。入力なし、出力: CPU/RSS匿名統計。 */
+  /** Stop sampling and aggregate results. No input; returns anonymized CPU/RSS statistics. */
   async stop(): Promise<ResourceReport> {
     this.stopping = true;
-    // docker stats実行自体は有限timeoutで待つが、sample間の長いdelayは即時解除する。
+    // Wait for docker stats itself with a finite timeout, but cancel long inter-sample delays immediately.
     this.waitController.abort();
     await this.running;
     if (this.failed || this.samples.length === 0) throw new Error('resource_sampling_failed');
@@ -63,12 +63,12 @@ export class ResourceSampler {
       rssMiB: { initial: rss[0]!, final: rss.at(-1)!, max: Math.max(...rss), growthPerHour: resourceGrowthPerHour(this.samples) } });
   }
 
-  /** stop要求まで有限commandを繰り返す。入力: container/間隔、出力: 完了promise。 */
+  /** Repeat bounded commands until stop is requested. Inputs: container/interval; returns a completion Promise. */
   private async loop(container: string, intervalMs: number): Promise<void> {
     while (!this.stopping) {
       const started = performance.now();
       try {
-        // docker statsはCPU差分を得るため約1秒観測するので、sampling間隔より独立した有限上限を持たせる。
+        // docker stats observes CPU differences for about one second; give it a finite deadline independent of the sampling interval.
         const output = await command('docker', ['stats', '--no-stream', '--format', '{{.CPUPerc}}|{{.MemUsage}}', container], Math.max(5000, intervalMs * 2));
         this.samples.push({ atMs: performance.now(), ...parseResourceSample(output.split('\n')[0] ?? '') });
       } catch {

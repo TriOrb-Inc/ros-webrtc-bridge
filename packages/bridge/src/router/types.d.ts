@@ -14,10 +14,10 @@ export interface RouterOptions {
     subscribe(publicName: string, callback: (native: unknown) => void): () => void;
     publish(publicName: string, native: unknown): void;
   };
-  /** falseは未送信。trueを返した場合だけqueue先頭を除去する。 */
+  /** False means unsent. Remove the queue head only when true is returned. */
   readonly send: (channel: Channel, bytes: Uint8Array) => boolean;
   readonly authorize?: (binding: TopicBinding, operation: 'subscribe' | 'publish') => boolean;
-  /** cleanup後に1回通知する。例外を投げず、transport closeはmicrotaskで予約する。 */
+  /** Notify once after cleanup. Do not throw; schedule transport close in a microtask. */
   readonly onClosed?: () => void;
   readonly limits: { readonly maxHandles: number; readonly maxRequests: number; readonly requestTtlMs: number; readonly maxControlRateHz: number };
 }

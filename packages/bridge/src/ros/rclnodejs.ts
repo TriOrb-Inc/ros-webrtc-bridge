@@ -5,7 +5,7 @@ import { rosRepresentation } from './representation.js';
 import type { CodecOptions } from '../codec/index.js';
 export type { RclModule, RosDefinition } from './types.js';
 
-/** 起動設定。ROS引数はprocess-global値を暗黙に取り込まず明示注入する。 */
+/** Startup settings. Inject ROS arguments explicitly instead of implicitly using process-global values. */
 export interface RclOptions {
   readonly nodeName: string;
   readonly namespace: string;
@@ -15,7 +15,7 @@ export interface RclOptions {
   readonly onError: (error: unknown) => void;
 }
 
-/** 専用ROS contextを初期化する。入力: rclnodejs,{nodeName:'bridge',...}。出力: backend。 */
+/** Initialize a dedicated ROS context. Inputs: rclnodejs,{nodeName:'bridge',...}; returns a backend. */
 export async function createRclnodejsBackend(rcl: RclModule, options: RclOptions): Promise<RosBackend & {
   resolveTopic(name: string): string;
   describe(type: string): RosDefinition;
@@ -26,50 +26,50 @@ export async function createRclnodejsBackend(rcl: RclModule, options: RclOptions
     await rcl.init(context, [...options.args]);
     const node = new rcl.Node(options.nodeName, options.namespace, context);
     const originalNames = new Map<string, string>();
-    /** 解決済名に対応する元の名前を取得。入力: '/target'。出力: '/source'。 */
+    /** Get the original name corresponding to a resolved name. Example: '/target' returns '/source'. */
     const original = (topic: string): string => {
       const name = originalNames.get(topic);
       if (name === undefined) throw new Error('ros_topic_not_resolved');
       return name;
     };
-    /** 型生成器の結果を取得。入力: 'std_msgs/msg/String'。出力: ROSMessageDef。 */
+    /** Get type generator output. Input: 'std_msgs/msg/String'; returns ROSMessageDef. */
     const describe = (type: string): RosDefinition => new rcl.MessageIntrospector(type).schema;
-    // default profileではなく明示したDDS QoSを構築する。enum値はRMWの公開定義。
+    // Construct explicit DDS QoS rather than a default profile. Enum values follow the public RMW definitions.
     const qos = (value: RosQos): unknown => new rcl.QoS(1, value.depth, value.reliability === 'reliable' ? 1 : 2, value.durability === 'volatile' ? 2 : 1);
     return {
-      /** publisher生成。入力: 型名,ROS名,QoS。出力: 同期publisher。 */
+      /** Create a publisher. Inputs: type name, ROS name, QoS; returns a synchronous publisher. */
       createPublisher(type, topic, policy) {
         const representation = rosRepresentation(descriptorFromRos(type, describe), options.codecOptions);
         const publisher = node.createPublisher(type, original(topic), { qos: qos(policy), enableTypedArray: false });
         if (publisher.topic !== topic) throw new Error('ros_publisher_topic_mismatch');
-        // scalar int64は生成message setterが要求するbigint表現を維持する。
+        // Preserve the bigint representation required by generated message setters for scalar int64 values.
         return { publish(native) { publisher.publish(representation.to(native)); } };
       },
-      /** subscription生成。入力: 型名,ROS名,QoS,callback。出力: void。 */
+      /** Create a subscription. Inputs: type name, ROS name, QoS, callback; returns void. */
       createSubscription(type, topic, policy, callback) {
-        // plainで数値配列を通常arrayに統一する。uint8だけはadapter正規化でUint8Arrayに戻す。
+        // Use plain output to normalize numeric sequences to arrays; adapter normalization restores only uint8 to Uint8Array.
         const representation = rosRepresentation(descriptorFromRos(type, describe), options.codecOptions);
         const subscription = node.createSubscription(type, original(topic), { qos: qos(policy), enableTypedArray: false, serializationMode: 'default' }, (native) => {
           try { callback(representation.from(native)); } catch (error) { options.onError(error); }
         });
         if (subscription.topic !== topic) throw new Error('ros_subscription_topic_mismatch');
       },
-      /** spin開始。入力: なし。出力: void。Nodeのevent loopをblockしない。 */
+      /** Start spinning. No input; returns void. Does not block the Node event loop. */
       spin() { node.spin(options.spinTimeoutMs); },
-      /** 専用contextの全entityを解放。入力: なし。出力: void。 */
+      /** Release all entities in the dedicated context. No input; returns void. */
       close() { originalNames.clear(); context.shutdown(); },
-      /** native remap適用。入力: '/source'。出力例: '/target'。 */
+      /** Apply native remapping. Example: '/source' returns '/target'. */
       resolveTopic(name) {
-        // resolved名を同じnodeへ再投入すると連鎖ruleが二度適用されるため、元の入力も保持する。
+        // Retain the original input: passing the resolved name into the same node could apply chained rules twice.
         const resolved = node.resolveTopicName(name);
         originalNames.set(resolved, name);
         return resolved;
       },
-      /** binding生成済みROS型を取得。入力: 'std_msgs/msg/String'。出力: ROSMessageDef。 */
+      /** Get a ROS type with generated bindings. Input: 'std_msgs/msg/String'; returns ROSMessageDef. */
       describe,
     };
   } catch (error) {
-    // init/node作成の部分失敗でも、他のcontextへ影響させず終了する。
+    // Clean up partial initialization or node-creation failures without affecting other contexts.
     try { context.shutdown(); } catch (cleanup) { throw new AggregateError([error, cleanup], 'ros_init_cleanup_failed'); }
     throw error;
   }

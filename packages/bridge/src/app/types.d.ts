@@ -3,7 +3,7 @@ import type { RosBackend, RosDefinition } from '../ros/types.js';
 import type { Peer } from '../transport/types.js';
 import type { RouterOptions } from '../router/types.js';
 
-/** process起動の明示設定。credential/TLSは呼出側が環境から注入する。 */
+/** Explicit process startup configuration. The caller injects credentials and TLS settings from the environment. */
 export interface AppSettings {
   readonly credential: string;
   readonly configSource: string;

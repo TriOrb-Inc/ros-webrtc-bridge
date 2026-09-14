@@ -84,7 +84,7 @@ class SDPManager {
         return this._remoteDescription?.media?.find?.((m) => m.direction === "inactive");
     }
     /**
-     * MediaDescriptionをトランシーバー用に作成
+     * Create a MediaDescription for the transceiver.
      */
     createMediaDescriptionForTransceiver(transceiver, direction) {
         const media = new sdp_1.MediaDescription(transceiver.kind, 9, "UDP/TLS/RTP/SAVPF", transceiver.codecs.map((c) => c.payloadType));
@@ -120,7 +120,7 @@ class SDPManager {
         return media;
     }
     /**
-     * MediaDescriptionをSCTP用に作成
+     * Create a MediaDescription for SCTP.
      */
     createMediaDescriptionForSctp(sctp) {
         const media = new sdp_1.MediaDescription("application", const_1.DISCARD_PORT, "UDP/DTLS/SCTP", ["webrtc-datachannel"]);
@@ -131,7 +131,7 @@ class SDPManager {
         return media;
     }
     /**
-     * トランスポートの情報をMediaDescriptionに追加
+     * Add transport information to the MediaDescription.
      */
     addTransportDescription(media, dtlsTransport) {
         const iceTransport = dtlsTransport.iceTransport;
@@ -154,7 +154,7 @@ class SDPManager {
         }
     }
     /**
-     * 一意のMIDを割り当て
+     * Assign a unique MID.
      */
     allocateMid(type = "") {
         let mid = "";
@@ -200,7 +200,7 @@ class SDPManager {
         }
     }
     /**
-     * オファーSDPを構築
+     * Build the offer SDP.
      */
     buildOfferSdp(transceivers, sctpTransport) {
         const description = new sdp_1.SessionDescription();
@@ -266,7 +266,7 @@ class SDPManager {
         return description;
     }
     /**
-     * アンサーSDPを構築
+     * Build the answer SDP.
      */
     buildAnswerSdp({ transceivers, sctpTransport, signalingState, }) {
         if (!["have-remote-offer", "have-local-pranswer"].includes(signalingState)) {
@@ -307,7 +307,7 @@ class SDPManager {
                     media.dtlsParams.role = dtlsTransport.role;
                 }
             }
-            // Simulcastに関する処理
+            // Handle simulcast.
             if (remoteMedia.simulcastParameters &&
                 remoteMedia.simulcastParameters.length > 0) {
                 media.simulcastParameters = remoteMedia.simulcastParameters.map((v) => ({
@@ -394,7 +394,7 @@ class SDPManager {
         return bundle;
     }
     /**
-     * ローカルセッション記述を設定し、トランスポート情報を追加する
+     * Set the local session description and add transport information.
      */
     setLocal(description, transceivers, sctpTransport) {
         const transceiverByMLineIndex = new Map(transceivers.map((transceiver) => [transceiver?.mLineIndex, transceiver]));

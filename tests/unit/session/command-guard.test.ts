@@ -4,12 +4,12 @@ import { CommandGuard } from '../../../packages/bridge/src/session/command-guard
 import type { GuardOptions } from '../../../packages/bridge/src/session/types.js';
 import { fixture } from './fixtures.js';
 
-test('CMD-01: lease直前で正常、一致/直後は受信時とpublish前とも拒否', () => {
+test('CMD-01: allow immediately before expiry and reject at/after expiry on receive and before publish', () => {
   for (const now of [249.5, 250, 251]) {
     const f = fixture();
     const ticket = f.guard.prepare(f.request);
     f.state.now = now;
-    // 待機barrier後にfake時刻を進め、ROSへの副作用を直接観測する。
+    // Advance fake time after the wait barrier and directly observe ROS side effects.
     if (now < 250) {
       ticket.publish(f.publish);
       assert.equal(f.state.publishes, 1);
@@ -21,14 +21,14 @@ test('CMD-01: lease直前で正常、一致/直後は受信時とpublish前と�
   }
 });
 
-test('AUTH-02/CMD-02: ACL撤回・切断・close・再armで待機commandを拒否', async () => {
+test('AUTH-02/CMD-02: reject pending commands after ACL revocation, disconnect, close, or rearming', async () => {
   for (const action of ['acl', 'session', 'handle', 'close', 'arm'] as const) {
     const f = fixture();
     const ticket = f.guard.prepare(f.request);
     let release!: () => void;
     const barrier = new Promise<void>((resolve) => { release = resolve; });
     const pending = barrier.then(() => ticket.publish(f.publish));
-    // 明示barrierで受信と同期publishの間に権限変更を配置する。
+    // Use an explicit barrier to place permission changes between receipt and synchronous publication.
     if (action === 'acl') f.state.allowed = false;
     if (action === 'session') f.guard.revokeSession(f.sessionId);
     if (action === 'handle') f.guard.closeHandle(f.sessionId, f.handle);
@@ -40,12 +40,12 @@ test('AUTH-02/CMD-02: ACL撤回・切断・close・再armで待機commandを拒�
   }
 });
 
-test('CMD-02/PRO-03: canonical uint64、重複、逆順、ticket再利用を拒否', () => {
+test('CMD-02/PRO-03: enforce canonical uint64 and reject duplicates, reverse order, and ticket reuse', () => {
   const f = fixture();
   for (const seq of ['', '00', '01', '+1', '-1', '1.0', '1e2', ' 1', '18446744073709551616', '100000000000000000000', 1]) {
     assert.throws(() => f.guard.prepare({ ...f.request, seq: seq as string }), /invalid_sequence/);
   }
-  // 初期値0とuint64最大値を個別に受理し、送信順の逆転を拒否する。
+  // Accept initial zero and the uint64 maximum separately; reject reversed send order.
   const first = f.guard.prepare(f.request);
   assert.throws(() => f.guard.prepare(f.request), /stale_sequence/);
   const later = f.guard.prepare({ ...f.request, seq: '18446744073709551615' });
@@ -55,12 +55,12 @@ test('CMD-02/PRO-03: canonical uint64、重複、逆順、ticket再利用を拒�
   assert.equal(f.state.publishes, 1);
 });
 
-test('AUTH-01/CMD-03: 別sessionと別handleへのlease流用、旧epochを拒否', () => {
+test('AUTH-01/CMD-03: reject lease reuse across sessions/handles and old epochs', () => {
   const f = fixture();
   const otherSession = f.guard.openSession('epoch-2');
   const otherHandle = f.guard.openHandle(otherSession, '/cmd_vel');
   const alias = f.guard.openHandle(f.sessionId, '/cmd_vel');
-  // identity、epoch、leaseそれぞれを単独で不正にする。
+  // Invalidate identity, epoch, and lease independently.
   for (const change of [{ sessionId: otherSession }, { handle: 'unknown' }, { epoch: 'old' }, { leaseId: 'old' }, { handle: alias }]) {
     assert.throws(() => f.guard.prepare({ ...f.request, ...change }), /invalid_owner|invalid_epoch|invalid_lease/);
   }
@@ -68,14 +68,14 @@ test('AUTH-01/CMD-03: 別sessionと別handleへのlease流用、旧epochを拒�
   const aliasLease = f.guard.arm(f.sessionId, alias);
   assert.throws(() => f.guard.prepare(f.request), /invalid_lease/);
   assert.notEqual(aliasLease.id, f.lease.id);
-  // 期限一致で別sessionへ排他権が移り、旧所有者は再利用できない。
+  // Transfer exclusivity to another session at exact expiry; the old owner cannot reuse it.
   f.state.now = 250;
   const next = f.guard.arm(otherSession, otherHandle);
   f.guard.prepare({ sessionId: otherSession, handle: otherHandle, epoch: 'epoch-2', leaseId: next.id, seq: '0' }).publish(f.publish);
   assert.equal(f.state.publishes, 1);
 });
 
-test('ACK-01: 同期ROS失敗でもseq/ticketを再利用しない', () => {
+test('ACK-01: do not reuse sequences or tickets after synchronous ROS failure', () => {
   const f = fixture();
   const ticket = f.guard.prepare(f.request);
   assert.throws(() => ticket.publish(() => { f.publish(); throw new Error('ros_failed'); }), /ros_failed/);
@@ -84,14 +84,14 @@ test('ACK-01: 同期ROS失敗でもseq/ticketを再利用しない', () => {
   assert.equal(f.state.publishes, 1);
 });
 
-test('LIFE-01: finite registry、解放、非再利用ID、異なるTopicのwriter', () => {
+test('LIFE-01: finite registries, release, non-reused IDs, and writers on different Topics', () => {
   const f = fixture({ maxSessions: 2, maxHandles: 2 });
   const other = f.guard.openSession('epoch-1');
   assert.throws(() => f.guard.openSession('epoch-1'), /session_limit/);
   const h = f.guard.openHandle(other, '/other');
   f.guard.arm(other, h);
   assert.throws(() => f.guard.openHandle(other, '/third'), /handle_limit/);
-  // 撤回は他sessionを維持し、繰返しても件数が負にならない。
+  // Revocation preserves other sessions; repeated revocation never produces negative counts.
   f.guard.revokeSession(f.sessionId);
   f.guard.revokeSession(f.sessionId);
   assert.deepEqual(f.guard.stats(), { sessions: 1, handles: 1 });
@@ -105,14 +105,14 @@ test('LIFE-01: finite registry、解放、非再利用ID、異なるTopicのwrit
   assert.throws(() => f.guard.openSession('epoch'), /guard_closed/);
 });
 
-test('SEC-01: constructor limits、clock、識別子とTopicを境界検証', () => {
+test('SEC-01: validate constructor limits, clocks, identifiers, and Topic boundaries', () => {
   const options: GuardOptions = { clock: () => 0, authorize: () => true, maxSessions: 2, maxHandles: 2, leaseMs: 250 };
   for (const value of [0, -1, NaN, Infinity, 0.1, Number.MAX_SAFE_INTEGER + 1]) {
     for (const key of ['maxSessions', 'maxHandles', 'leaseMs']) {
       assert.throws(() => new CommandGuard({ ...options, [key]: value }), /invalid_limit/);
     }
   }
-  // callbackがない場合に暗黙の許可policyへfallbackしない。
+  // Do not fall back to implicit permission when a callback is missing.
   assert.throws(() => new CommandGuard({ ...options, clock: null } as unknown as GuardOptions), /invalid_callback/);
   assert.throws(() => new CommandGuard({ ...options, authorize: null } as unknown as GuardOptions), /invalid_callback/);
   for (const value of [-1, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
@@ -133,7 +133,7 @@ test('SEC-01: constructor limits、clock、識別子とTopicを境界検証', ()
   assert.equal(f.state.publishes, 0);
 });
 
-test('AUTH-02: 認可hook内の撤回も再検証し、登録を残さない', () => {
+test('AUTH-02: revalidate revocation inside authorization hooks without leaving registrations', () => {
   let phaseToRevoke: string = '';
   let guard: CommandGuard;
   guard = new CommandGuard({ clock: () => 0, maxSessions: 2, maxHandles: 2, leaseMs: 250,
@@ -146,7 +146,7 @@ test('AUTH-02: 認可hook内の撤回も再検証し、登録を残さない', (
       assert.throws(() => guard.openHandle(sessionId, '/cmd'), /unknown_session/);
       continue;
     }
-    // hookを実際に対象段階まで進めてから撤回を発生させる。
+    // Reach the target hook phase before triggering revocation.
     const handle = guard.openHandle(sessionId, '/cmd');
     if (phase === 'arm') {
       phaseToRevoke = phase;
@@ -169,14 +169,14 @@ test('AUTH-02: 認可hook内の撤回も再検証し、登録を残さない', (
   assert.deepEqual(guard.stats(), { sessions: 0, handles: 0 });
 });
 
-test('AUTH-01: default denyとcallback異常、request copyを確認', () => {
+test('AUTH-01: verify default deny, callback failures, and request copying', () => {
   const f = fixture();
   f.state.allowed = false;
   assert.throws(() => f.guard.openHandle(f.sessionId, '/denied'), /unauthorized/);
   assert.throws(() => f.guard.arm(f.sessionId, f.handle), /unauthorized/);
   assert.throws(() => f.guard.prepare(f.request), /unauthorized/);
   assert.equal(f.state.publishes, 0);
-  // 元requestを変えても予約済みのsequence/epochは変わらない。
+  // Mutating the original request does not change the reserved sequence or epoch.
   f.state.allowed = true;
   const original = { ...f.request };
   const ticket = f.guard.prepare(original);
@@ -187,10 +187,10 @@ test('AUTH-01: default denyとcallback異常、request copyを確認', () => {
   assert.equal(f.state.publishes, 1);
 });
 
-test('SEC-01: 末尾の改行はidentifier/sequence/ROS Topicの一部として拒否', () => {
+test('SEC-01: reject trailing newlines in identifiers, sequences, and ROS Topics', () => {
   const f = fixture();
   for (const ending of ['\n', '\r', '\r\n', '\u2028', '\u2029']) {
-    // 複数行flagなどの変更で末尾改行を受理する回帰を防ぐ。
+    // Prevent regressions that accept trailing newlines after multiline flag or similar changes.
     assert.throws(() => f.guard.openSession(`epoch${ending}`), /invalid_identifier/);
     assert.throws(() => f.guard.openHandle(f.sessionId, `/cmd_vel${ending}`), /invalid_topic/);
     assert.throws(() => f.guard.prepare({ ...f.request, seq: `42${ending}` }), /invalid_sequence/);
@@ -199,7 +199,7 @@ test('SEC-01: 末尾の改行はidentifier/sequence/ROS Topicの一部として�
   assert.equal(f.state.publishes, 0);
 });
 
-test('CFG-01/CMD-01/CMD-03: Topic別lease設定でも出力Topicのwriter排他を共有', () => {
+test('CFG-01/CMD-01/CMD-03: share output Topic writer exclusivity across per-Topic lease settings', () => {
   const f = fixture();
   const otherSession = f.guard.openSession('epoch-2');
   const slowHandle = f.guard.openHandle(otherSession, '/slow', 500);
@@ -207,7 +207,7 @@ test('CFG-01/CMD-01/CMD-03: Topic別lease設定でも出力Topicのwriter排他�
   const slowLease = f.guard.arm(otherSession, slowHandle);
   assert.equal(slowLease.expiresAt, 500);
   assert.equal(f.lease.expiresAt, 250);
-  // 異なる設定値のhandleを同じguardへ収容しても、同じ出力Topicは排他する。
+  // Handles with different settings in one guard still share exclusivity for the same output Topic.
   assert.throws(() => f.guard.arm(otherSession, aliasHandle), /writer_busy/);
   const oldCommand = f.guard.prepare(f.request);
   const slowCommand = f.guard.prepare({ sessionId: otherSession, epoch: 'epoch-2', handle: slowHandle, leaseId: slowLease.id, seq: '0' });
@@ -219,7 +219,7 @@ test('CFG-01/CMD-01/CMD-03: Topic別lease設定でも出力Topicのwriter排他�
   assert.equal(f.state.publishes, 1);
 });
 
-test('CFG-01: Topic別lease上書きの不正値はhandle登録前に拒否', () => {
+test('CFG-01: reject invalid per-Topic lease overrides before registering handles', () => {
   const f = fixture();
   for (const leaseMs of [0, -1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
     assert.throws(() => f.guard.openHandle(f.sessionId, '/invalid', leaseMs), /invalid_limit/);
@@ -227,13 +227,13 @@ test('CFG-01: Topic別lease上書きの不正値はhandle登録前に拒否', ()
   assert.deepEqual(f.guard.stats(), { sessions: 1, handles: 1 });
 });
 
-test('CFG-01: ROS完全Topic名は247文字を受理し248文字を拒否', () => {
+test('CFG-01: accept 247-character fully qualified ROS Topic names and reject 248 characters', () => {
   const f = fixture();
   const topic = `/${'a'.repeat(246)}`;
   const handle = f.guard.openHandle(f.sessionId, topic);
   const lease = f.guard.arm(f.sessionId, handle);
   assert.throws(() => f.guard.openHandle(f.sessionId, `${topic}a`), /invalid_topic/);
-  // 境界上のTopicは実際にpublish可能で、不正名の登録は残らない。
+  // A Topic at the boundary can publish; invalid registrations leave no state behind.
   f.guard.prepare({ ...f.request, handle, leaseId: lease.id }).publish(f.publish);
   assert.equal(f.state.publishes, 1);
   assert.deepEqual(f.guard.stats(), { sessions: 1, handles: 2 });

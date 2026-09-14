@@ -1,12 +1,12 @@
 # ROS adapter
 
-`TopicRosAdapter`は起動設定にあるROS publisher/subscriptionを`start()`時に生成します。設定済み出力名・型・QoSが同じentityは共有し、`subscribe(publicName, callback)`はlogical listenerだけを追加します。戻り値の解除関数はROS entityを破棄しません。`publish(publicName, native)`は方向と型・値を検証して同期的にROS APIを呼び、成功をcontroller処理完了とは扱いません。
+`TopicRosAdapter` creates the configured ROS publishers and subscriptions in `start()`. Entities with identical configured output names, types, and QoS are shared. `subscribe(publicName, callback)` only adds a logical listener; its unsubscribe function does not destroy the ROS entity. `publish(publicName, native)` validates direction, type, and values, then calls the ROS API synchronously. Success does not mean controller completion.
 
-## 現状と使用方法
+## Current behavior and usage
 
-`createRclnodejsBackend`へ実rclnodejsモジュール、node名、namespace、ROS引数、spin timeout、非throwの`onError`を注入します。専用contextの初期化完了後に返る`resolveTopic`を設定loaderへ渡し、remap後の名前でwriter所有権を管理します。`describe`はbinding生成済みの型を`MessageIntrospector`から取得します。
+Inject the real rclnodejs module, node name, namespace, ROS arguments, spin timeout, and a non-throwing `onError` into `createRclnodejsBackend`. After its dedicated context initializes, pass the returned `resolveTopic` to the configuration loader to manage writer ownership by remapped names. `describe` obtains generated type metadata from `MessageIntrospector`.
 
-`resolveTopic`は解決済名と元の入力名を対応付けます。native entity生成には元の名前を渡し、同じnodeのremapを一度だけ適用します。例えば`/source:=/target`と`/target:=/other`があるとき、`/source`の所有名と実際のROS名はともに`/target`です。解決済`/target`を再びnativeへ入力して`/other`へ進めることはありません。entity生成後にもnativeの実Topic名を照合し、不一致は起動を拒否します。設定の解決とentity生成には同じbackendを使い、`resolveTopic`を通していない名前を直接生成しないでください。
+`resolveTopic` associates resolved names with their original input names. Native entity creation receives the original name, applying the node's remapping once. For example, with `/source:=/target` and `/target:=/other`, both the ownership name and actual ROS name for `/source` are `/target`. The resolved `/target` is not passed to the native layer again to become `/other`. After entity creation, the actual native Topic name is checked; a mismatch rejects startup. Use the same backend for configuration resolution and entity creation, and do not create names that have bypassed `resolveTopic`.
 
 ```typescript
 const backend = await createRclnodejsBackend(rclnodejs, {
@@ -26,28 +26,28 @@ const adapter = new TopicRosAdapter(registry, backend, reportError);
 adapter.start();
 ```
 
-`start`以前と`close`以後のTopic操作、未知公開名、方向違いを拒否します。部分的な起動失敗も全contextを終了し、cleanupの失敗は元の失敗と合わせて報告します。アプリケーションはbackend初期化後の設定・registry生成失敗時にも`backend.close()`を呼ぶ必要があります。`close`はidempotentで、終了後のcallbackは破棄します。`onError`は例外やpayloadを既定公開logへ無加工で出さず、例外を投げない診断handlerにしてください。
+Topic operations before `start` or after `close`, unknown public names, and incorrect directions are rejected. Partial startup failure shuts down the entire context, reporting cleanup failures alongside the original failure. The application must also call `backend.close()` if configuration or registry creation fails after backend initialization. `close` is idempotent; callbacks after closure are discarded. `onError` must be a non-throwing diagnostic handler and must not dump raw exceptions or payloads into public default logs.
 
-`MockRosBackend`を同じ`TopicRosAdapter`へ注入すると、同じAPIで単体・router試験を実行できます。mockはDDS discovery、QoS、serialization、実配送、native callbackの滞留を模擬しません。
+Injecting `MockRosBackend` into the same `TopicRosAdapter` supports unit and router tests through the same API. The mock does not simulate DDS discovery, QoS, serialization, actual delivery, or native callback backlog.
 
-## 型・QoSの境界
+## Type and QoS boundaries
 
-`descriptorFromRos`はbool、string、整数8/16/32/64、float32/64、uint8配列、通常配列、nested messageを明示した型metadataから構築します。固定長・bounded制約を保持し、定数をenum制約へ変換しません。循環・過深schema、未対応primitiveを起動前に拒否します。`wstring`、`byte`、`char`等の互換性は未確定であり、推測した型を公開しません。ROS type hashとwire schema IDは本モジュールの対象外です。
+`descriptorFromRos` constructs booleans, strings, 8/16/32/64-bit integers, float32/64, uint8 arrays, ordinary arrays, and nested messages from explicit type metadata. It preserves fixed-length and bounded constraints; constants do not become enum constraints. Cyclic or excessively deep schemas and unsupported primitives are rejected before startup. Compatibility of `wstring`, `byte`, `char`, and similar types remains unresolved; guessed types are not exposed. ROS type hashes and wire schema IDs are outside this module's scope.
 
-`rclnodejs 2.2.0`のscalar 64bit整数は、生成方式によりsubscription側でsafe範囲number、decimal string、または`bigint`として現れる可能性があります。本モジュールはどの入力もschema範囲を検証してbridgeの`bigint`へ統一し、publish時は生成message setterが要求する`bigint`を維持します。一般のstringは変換しません。subscriptionは`enableTypedArray: false`を指定し、uint8列だけをbridgeの`Uint8Array`へ変換します。未知field、配列のholeや追加propertyを暗黙に捨てません。
+Depending on binding generation, subscription-side scalar 64-bit integers in `rclnodejs 2.2.0` may be safe-range numbers, decimal strings, or `bigint`. This module validates each representation against the schema and normalizes it to bridge `bigint`. Publication preserves the `bigint` required by generated message setters. Ordinary strings are not converted. Subscriptions use `enableTypedArray: false`; only uint8 sequences become bridge `Uint8Array` values. Unknown fields, array holes, and extra properties are not silently discarded.
 
-backendの`codecOptions`と`descriptorFromRos`の第3引数`maxDepth`で変換資源上限を調整できます。既定値は[codec](../codec/README.md)と同じです。string boundのUTF-8 byte規約とrclnodejsの生成bindingとの完全な対応は、多byte bounded stringの実ROS fixtureで今後検証します。実ROSで確認した型は下記の範囲に限定します。
+Conversion resource limits are configurable through the backend's `codecOptions` and the third `maxDepth` argument of `descriptorFromRos`. Defaults match the [codec](../codec/README.md). Full compatibility between UTF-8 byte string bounds and rclnodejs-generated bindings still needs real ROS fixtures with multibyte bounded strings. Real ROS verification is limited to the types listed below.
 
-DDS QoSは`keep_last`、指定depth、reliable/best_effort、volatile/transient_localをnativeの`QoS`へ写します。DataChannel配送設定は参照しません。不一致QoSの診断やmatched数監視、native callback滞留制御は未実装です。
+DDS `keep_last`, configured depth, reliable/best_effort, and volatile/transient_local map to native `QoS`. DataChannel delivery settings are not consulted. QoS mismatch diagnostics, matched-count monitoring, and native callback backlog control are unimplemented.
 
-## 検証と制約
+## Validation and limitations
 
-単体試験はnative facadeを注入し、起動・解放・例外、remap、QoS enum、型metadata、64bit/bytes変換を検証します。実ROS試験は[tests/ros](../../../../tests/ros/README.md)を参照してください。Humble/Jazzyのarm64環境でString・Twistを独立rclpy対向processと交換する試験を用意しています。他の型、RMW、architecture、性能条件の対応保証には広げません。
+Unit tests inject a native facade to verify startup, cleanup, exceptions, remapping, QoS enums, type metadata, and 64-bit/byte conversion. See [tests/ros](../../../../tests/ros/README.md) for real ROS tests. Tests exchange String and Twist with an independent rclpy process on Humble/Jazzy arm64. This does not imply support guarantees for other types, RMWs, architectures, or performance conditions.
 
-ROSへの接続権限、session所有権、command lease、rate、peer/process容量、WebRTC、SDKは上位層の責務です。ROS bindingがインストールされていることと、全ROS型の実運用検証が済んでいることは別です。
+ROS access, session ownership, command leases, rates, peer/process capacity, WebRTC, and SDKs belong to higher layers. Installed ROS bindings do not establish production validation of every ROS type.
 
-## 依存と配布
+## Dependencies and distribution
 
-`rclnodejs 2.2.0`を固定し、Node.js 22.22.2で評価しています。本体はApache-2.0で、解決したnpm推移依存はMIT、ISC、Apache-2.0、BlueOak-1.0.0、0BSD、またはMIT/Apache-2.0の選択licenseです。vendored ref-napi由来コードの通知は[vendor/rclnodejs-notices](../../../../vendor/rclnodejs-notices/README.md)へ補完しています。実ROS・OS componentの配布通知も別途維持してください。
+`rclnodejs 2.2.0` is pinned and evaluated on Node.js 22.22.2. Its license is Apache-2.0; resolved transitive npm dependencies use MIT, ISC, Apache-2.0, BlueOak-1.0.0, 0BSD, or a choice of MIT/Apache-2.0. Supplementary notices for vendored ref-napi-derived code are in [vendor/rclnodejs-notices](../../../../vendor/rclnodejs-notices/README.md). Maintain distribution notices for real ROS and OS components separately.
 
-一次資料: [rclnodejs 2.2.0](https://github.com/RobotWebTools/rclnodejs/tree/2.2.0)、[MessageIntrospector](https://github.com/RobotWebTools/rclnodejs/blob/2.2.0/types/message_introspector.d.ts)、[QoS](https://github.com/RobotWebTools/rclnodejs/blob/2.2.0/lib/qos.js)、[native整数表現](https://github.com/RobotWebTools/rclnodejs/blob/2.2.0/third_party/ref-napi/src/ref_napi_bindings.cpp)。
+Primary references: [rclnodejs 2.2.0](https://github.com/RobotWebTools/rclnodejs/tree/2.2.0), [MessageIntrospector](https://github.com/RobotWebTools/rclnodejs/blob/2.2.0/types/message_introspector.d.ts), [QoS](https://github.com/RobotWebTools/rclnodejs/blob/2.2.0/lib/qos.js), [native integer representation](https://github.com/RobotWebTools/rclnodejs/blob/2.2.0/third_party/ref-napi/src/ref_napi_bindings.cpp).

@@ -1,47 +1,47 @@
-# 起動と構成
+# Startup and composition
 
-`cli.main()` は環境設定、TLS、YAML を検証してから rclnodejs の専用 context、共有 ROS entity、command guard、peer ごとの router / WebRTC endpoint、HTTPS signaling を組み立てます。module の import だけでは起動しません。
+`cli.main()` validates environment settings, TLS, and YAML before assembling a dedicated rclnodejs context, shared ROS entities, command guard, per-peer routers/WebRTC endpoints, and HTTPS signaling. Importing the module does not start it.
 
 ```bash
 node -e "import('./.runtime/build/packages/bridge/src/app/cli.js').then(m=>m.main())"
 ```
 
-ROS 環境を source し、native addon と Werift core の生成を済ませて起動します。ROS の distro / domain / RMW は `ROS_DISTRO`、`ROS_DOMAIN_ID`、`RMW_IMPLEMENTATION` 等の標準環境を使います。CLI は `rclnodejs` を直接使用し、Python sidecar を必要としません。
+Source the ROS environment and prepare the native addon and Werift core before startup. ROS distro, domain, and RMW use standard environment variables such as `ROS_DISTRO`, `ROS_DOMAIN_ID`, and `RMW_IMPLEMENTATION`. The CLI uses `rclnodejs` directly and requires no Python sidecar.
 
-ament/colconでinstallした場合は`ros2 run ros_webrtc_bridge ros_webrtc_bridge`、または`ros2 launch ros_webrtc_bridge bridge.launch.py`で同じ`cli.main()`を起動します。launch argumentは`config`、`host`、`port`、`node_name`だけです。credential、TLS鍵・証明書、Topic権限はlaunch argumentへ載せず、下記の環境変数から継承します。
+After ament/colcon installation, `ros2 run ros_webrtc_bridge ros_webrtc_bridge` or `ros2 launch ros_webrtc_bridge bridge.launch.py` invokes the same `cli.main()`. Launch arguments are limited to `config`, `host`, `port`, and `node_name`. Credentials, TLS keys/certificates, and Topic permissions are inherited from the environment rather than placed in launch arguments.
 
-| 環境変数 | 必須・既定値 | 用途 |
+| Environment variable | Requirement/default | Purpose |
 |---|---|---|
-| `BRIDGE_CREDENTIAL` | 必須、32 文字以上 | 実行時に発行する単一 Bearer credential |
-| `BRIDGE_CONFIG` | 必須 | bridge YAML の path |
-| `BRIDGE_TLS_KEY` / `BRIDGE_TLS_CERT` | 必須 | PEM 秘密鍵 / 証明書の path |
-| `BRIDGE_HOST` / `BRIDGE_PORT` | `127.0.0.1` / `7443` | HTTPS bind |
-| `BRIDGE_SUBSCRIBE_TOPICS` | 空 | 読取りを許可する Web 公開名、comma 区切り |
-| `BRIDGE_PUBLISH_SCOPES` | 空 | 許可する `access.publish_scope`、comma 区切り |
-| `BRIDGE_NODE_NAME` | `ros_webrtc_gateway` | ROS node 名 |
-| `BRIDGE_ROS_ARGS` | `[]` | ROS 引数の JSON string array。remap もここから渡す |
+| `BRIDGE_CREDENTIAL` | Required, at least 32 characters | Single runtime-issued Bearer credential |
+| `BRIDGE_CONFIG` | Required | Bridge YAML path |
+| `BRIDGE_TLS_KEY` / `BRIDGE_TLS_CERT` | Required | PEM private key / certificate paths |
+| `BRIDGE_HOST` / `BRIDGE_PORT` | `127.0.0.1` / `7443` | HTTPS bind address |
+| `BRIDGE_SUBSCRIBE_TOPICS` | Empty | Comma-separated public Web names allowed for reading |
+| `BRIDGE_PUBLISH_SCOPES` | Empty | Comma-separated allowed `access.publish_scope` values |
+| `BRIDGE_NODE_NAME` | `ros_webrtc_gateway` | ROS node name |
+| `BRIDGE_ROS_ARGS` | `[]` | JSON string array of ROS arguments, including remaps |
 | `BRIDGE_SPIN_TIMEOUT_MS` | `10` | rclnodejs spin timeout |
-| `BRIDGE_MAX_CONFIG_BYTES` | `1048576` | YAML 文書上限 |
-| `BRIDGE_NEGOTIATION_TIMEOUT_MS` | `30000` | SDP / ICE / 3 DataChannel 確立と peer close の待機上限 |
-| `BRIDGE_MAX_SDP_BYTES` | `262144` | signaling body と SDP の上限 |
-| `BRIDGE_REQUEST_TIMEOUT_MS` | `10000` | HTTP body 読取り期限 |
-| `BRIDGE_MAX_HANDLES` | `64` | peer ごとの stream / publisher handle 上限 |
-| `BRIDGE_MAX_REQUESTS` | `64` | peer ごとの request cache / control queue 上限 |
-| `BRIDGE_REQUEST_TTL_MS` | `30000` | request cache 寿命 |
-| `BRIDGE_MAX_CONTROL_RATE_HZ` | `100` | peer ごとの control operation rate |
+| `BRIDGE_MAX_CONFIG_BYTES` | `1048576` | YAML document limit |
+| `BRIDGE_NEGOTIATION_TIMEOUT_MS` | `30000` | Deadline for SDP/ICE/three-channel establishment and peer closure |
+| `BRIDGE_MAX_SDP_BYTES` | `262144` | Signaling body and SDP limit |
+| `BRIDGE_REQUEST_TIMEOUT_MS` | `10000` | HTTP body read deadline |
+| `BRIDGE_MAX_HANDLES` | `64` | Stream/publisher handles per peer |
+| `BRIDGE_MAX_REQUESTS` | `64` | Request cache/control queue entries per peer |
+| `BRIDGE_REQUEST_TTL_MS` | `30000` | Request cache lifetime |
+| `BRIDGE_MAX_CONTROL_RATE_HZ` | `100` | Control operation rate per peer |
 
-同時 peer、message bytes、queue、channel buffer は YAML の `limits` が正本です。guard の lease は binding の `command_guard.lease_ms` を使います。権限一覧が空ならその操作を許可しません。publish は明示した scope と binding の方向も照合します。単一 credential に対する固定権限の起動形態であり、JWT、多ユーザーごとの権限更新、credential 発行サービスは未実装です。
+YAML `limits` is authoritative for concurrent peers, message bytes, queues, and channel buffers. Guard leases use each binding's `command_guard.lease_ms`. Empty permission lists deny the corresponding operation. Publication also checks the explicit scope and binding direction. This startup mode provides fixed permissions for a single credential; JWT, per-user permission updates, and credential issuance services are unimplemented.
 
-`BRIDGE_HOST` の未指定は loopback を選びます。明示した空文字は wildcard bind への意図しない拡大を防ぐため起動拒否します。
+An omitted `BRIDGE_HOST` selects loopback. An explicitly empty string rejects startup to prevent unintended wildcard binding.
 
-`GET /health` と認証付き `POST /offer` を提供します。
+The server provides `GET /health` and authenticated `POST /offer`.
 
-同じHTTPS originの `/docs` にSwagger UI、`/openapi.json` と `/openapi.yaml` にHTTP仕様を公開します。これらの閲覧に認証は不要です。UIのCSS/JavaScriptは固定依存 `swagger-ui-dist 5.32.15`（Apache-2.0）から同originで配信し、CDNや外部validatorへ接続しません。実行先は閲覧中のoriginです。Authorizeに入力したcredentialはbrowser memoryだけに保持し、永続保存しません。server側credentialは文書やUIへ注入しません。
+Swagger UI is available at `/docs`, with HTTP specifications at `/openapi.json` and `/openapi.yaml` on the same HTTPS origin. Reading them requires no authentication. UI CSS/JavaScript comes from pinned `swagger-ui-dist 5.32.15` (Apache-2.0), served on the same origin without a CDN or external validator. Requests target the origin being viewed. Credentials entered into Authorize remain only in browser memory and are not persisted. Server credentials are never injected into the document or UI.
 
-OpenAPIは実装済みhealth/offerだけを記述します。ROS TopicのPub/SubはDataChannel上のwire protocolであり、REST endpointとして列挙しません。Try it outで有効なofferを送るには、client側で固定3 DataChannel、ICE gathering、answer適用、ready handshakeを実装する必要があります。
+OpenAPI describes only the implemented health/offer endpoints. ROS Topic Pub/Sub uses the DataChannel wire protocol and is not listed as REST endpoints. A valid offer submitted through Try it out still requires a client implementing the three fixed DataChannels, ICE gathering, answer application, and ready handshake.
 
-gateway 自身の ICE servers は空で、host candidate を使用します。TURN はブラウザ側へ設定する検証構成です。SIGINT / SIGTERM では session を撤回し、peer、共有 ROS entity、HTTP socket を解放します。常駐中は 5 秒ごとに匿名の状態を表示します。
+The Gateway's ICE server list is empty and uses host candidates. The test configuration supplies TURN on the browser side. SIGINT/SIGTERM revoke sessions and release peers, shared ROS entities, and HTTP sockets. The running process prints anonymous status every five seconds.
 
-`registry.ts` は YAML の候補型を構文検証し、native loader で実在する型を全件解決して codec を構築します。schema ID は `sha256:` に、`{codec:'ros-json-v1',descriptor,allowNonFinite}` の canonical JSON を UTF-8 として hash した値を続けます。全 object key を JavaScript string の昇順に再帰整列し、array 順序は維持します。ROS type hash や公開 JSON Schema 文書とは別物です。command guard の有無による非有限値 policy の違いも ID に反映します。
+`registry.ts` syntax-checks candidate YAML types, resolves every actual type through the native loader, and constructs codecs. Schema IDs consist of `sha256:` followed by the hash of UTF-8 canonical JSON for `{codec:'ros-json-v1',descriptor,allowNonFinite}`. Object keys are recursively sorted in ascending JavaScript string order; array order is preserved. These IDs are distinct from ROS type hashes and public JSON Schema documents. Differences in non-finite-value policy caused by command guards also affect the ID.
 
-unit は `tests/unit/app/` にあり、native facade と実 HTTPS socket で認証、所有権、lease 後の同期 publish、初期化・終了失敗を検証します。型の実在性、DDS、ブラウザ接続、TURN の成立は別途の接続試験が必要です。
+Unit tests in `tests/unit/app/` use a native facade and real HTTPS sockets to verify authentication, ownership, synchronous publication after lease validation, and initialization/shutdown failures. Type availability, DDS, browser connections, and TURN require separate connection tests.

@@ -5,14 +5,14 @@ import { canonical, createRegistry, inspectConfig } from '../../../packages/brid
 import { WebRtcEndpoint } from '../../../packages/bridge/src/transport/endpoint.js';
 import { definition, fixture, settings, source } from './fixtures.js';
 
-test('CFG-01 native init前に設定を検証し、canonical schema hashを固定する', () => {
+test('CFG-01 validate configuration before native initialization and pin the canonical schema hash', () => {
   const config = inspectConfig(source, 1048576);
   assert.equal(config.topics.length, 2);
   assert.deepEqual(canonical({ z: [null, { b: 2, a: 1 }], a: true }), { a: true, z: [null, { a: 1, b: 2 }] });
   const first = createRegistry(config, () => definition);
   const reordered = { fields: definition.fields.map(field => ({ type: field.type, name: field.name })) };
   assert.equal(first[0].schemaId, createRegistry(config, () => reordered)[0].schemaId);
-  // YAML特殊構文、候補型、全体schemaの異常をロード前に拒否する。
+  // Reject special YAML syntax, candidate types, and invalid overall schemas before loading.
   for (const invalid of ['{', '!!custom a', 'null', 'topics: []', 'topics: {x: 1}', source.replace('std_msgs/msg/String', 'invalid')]) {
     assert.throws(() => inspectConfig(invalid, 1048576));
   }
@@ -20,7 +20,7 @@ test('CFG-01 native init前に設定を検証し、canonical schema hashを固�
   assert.throws(() => createRegistry(config, () => { throw new Error('unavailable_type'); }), /unavailable_type/);
 });
 
-test('ACK-01 shared ROSと認証済み3DCを接続し、lease後の同期publishを確認する', async () => {
+test('ACK-01 connect shared ROS and authenticated three-channel peers and verify synchronous publication after leasing', async () => {
   const f = fixture();
   const app = await startApp(settings, f.factories);
   assert.equal(app.config.topics[0].rosTopic, '/resolved/out');
@@ -29,7 +29,7 @@ test('ACK-01 shared ROSと認証済み3DCを接続し、lease後の同期publish
   assert.equal(await f.offer(), 400);
   const peer = f.peers[0]; peer.open();
   const control = peer.channels[0];
-  /** control操作を送る。入力op/id/追加値、出力最後の応答。 */
+  /** Send a control operation. Inputs: op/id/extra fields; output: last response. */
   const send = (op: string, extra: object = {}) => { control.onMessage.emit(JSON.stringify({ v: 1, op, ...extra })); return control.sent.at(-1)!; };
   const welcome = send('hello');
   assert.equal((welcome.catalog as unknown[]).length, 2);
@@ -42,13 +42,13 @@ test('ACK-01 shared ROSと認証済み3DCを接続し、lease後の同期publish
   peer.channels[1].onMessage.emit(JSON.stringify({ v: 1, op: 'publish', handle: advertised.handle,
     epoch: advertised.epoch, seq: '0', lease_id: lease.lease_id, data: { data: 'command' } }));
   assert.deepEqual(f.published, [{ data: 'command' }]);
-  // shutdownはpeerとROS、HTTPを解放し、同じappへの新offerを拒否する。
+  // Shutdown releases peers, ROS, and HTTP and rejects new offers to the same app.
   const closing = app.close(); assert.equal(app.close(), closing); await closing;
   assert.equal(app.peerCount(), 0); assert.equal(await f.offer(), 400);
   assert.deepEqual(f.events, ['spin', 'ros_close', 'http_close']);
 });
 
-test('AUTH-01 allowlist未指定はcatalogとpublishをdefault denyにする', async () => {
+test('AUTH-01 default-deny catalog and publication without an allowlist', async () => {
   const f = fixture();
   const app = await startApp({ ...settings, subscribeTopics: [], publishScopes: [] }, f.factories);
   await f.offer(); f.peers[0].open();
@@ -58,7 +58,7 @@ test('AUTH-01 allowlist未指定はcatalogとpublishをdefault denyにする', a
   control.onMessage.emit('{"v":1,"op":"advertise","id":"x","topic":"/in"}');
   assert.equal(control.sent.at(-1)!.op, 'error');
   await app.close();
-  // accessそのものが無い出力は、文字列scopeの有無に関係なく拒否する。
+  // Deny outputs without access configuration regardless of the presence of a string scope.
   const unguarded = source.replace(/    access:.*\n    command_guard:.*\n/, '');
   const g = fixture(); const denied = await startApp({ ...settings, configSource: unguarded }, g.factories);
   await g.offer(); g.peers[0].open(); g.peers[0].channels[0].onMessage.emit('{"v":1,"op":"hello"}');
@@ -66,7 +66,7 @@ test('AUTH-01 allowlist未指定はcatalogとpublishをdefault denyにする', a
   await denied.close();
 });
 
-test('LIFE-01 ROS callback起点のrouter致命終了でもpeer枠を解放する', async () => {
+test('LIFE-01 release peer slots after fatal router closure initiated by a ROS callback', async () => {
   const f = fixture();
   const app = await startApp(settings, f.factories);
   await f.offer(); f.peers[0].open();
@@ -75,7 +75,7 @@ test('LIFE-01 ROS callback起点のrouter致命終了でもpeer枠を解放す�
   control.onMessage.emit('{"v":1,"op":"subscribe","id":"s","topic":"/out"}');
   const subscription = control.sent.at(-1)!;
   control.onMessage.emit(JSON.stringify({ v: 1, op: 'ready', stream_id: subscription.stream_id }));
-  // data送信とerror通知の両方が不能になった場合、routerはsession全体を撤回する。
+  // The router revokes the entire session when neither data nor error notifications can be sent.
   for (const channel of f.peers[0].channels) channel.send = () => { throw new Error('transport_failed'); };
   f.sample({ data: 'new sample' });
   await new Promise(resolve => setImmediate(resolve));
@@ -84,7 +84,7 @@ test('LIFE-01 ROS callback起点のrouter致命終了でもpeer枠を解放す�
   await app.close();
 });
 
-test('LIFE-01 初期化途中の異常でもcontext・serverのcleanupを継続する', async () => {
+test('LIFE-01 continue context and server cleanup after partial initialization failures', async () => {
   const invalid = fixture();
   await assert.rejects(startApp({ ...settings, credential: '' }, invalid.factories), /credential/);
   await assert.rejects(startApp({ ...settings, credential: 1 as unknown as string }, invalid.factories), /credential/);
@@ -100,7 +100,7 @@ test('LIFE-01 初期化途中の異常でもcontext・serverのcleanupを継続�
   }
 });
 
-test('LIFE-01 server・peer cleanupの失敗を通知し残りのROS資源を解放する', async context => {
+test('LIFE-01 report server/peer cleanup failures and release remaining ROS resources', async context => {
   const f = fixture();
   const original = f.factories.listen;
   Object.assign(f.factories, { listen: async (handler: Parameters<typeof original>[0]) => { await original(handler); return { async close() { throw new Error('http'); } }; } });
@@ -108,13 +108,13 @@ test('LIFE-01 server・peer cleanupの失敗を通知し残りのROS資源を解
   const originalClose = WebRtcEndpoint.prototype.close;
   let closeCalls = 0;
   context.mock.method(WebRtcEndpoint.prototype, 'close', async function (this: WebRtcEndpoint) {
-    // 実資源は解放してから異常結果を返し、app側の継続cleanupを検証する。
+    // Release real resources before returning a failure to verify continued app cleanup.
     await originalClose.call(this);
     if (++closeCalls === 1) throw new Error('peer_cleanup');
   });
   await app.close();
   assert.ok(f.events.includes('ros_close')); assert.equal(f.events.filter(value => value === 'error').length, 2);
   context.mock.restoreAll();
-  // mockで閉じなかったendpointの交渉timerはfake peer失敗通知で解放する。
+  // Release negotiation timers for endpoints left open by the mock using a fake peer failure notification.
   f.peers[0].connectionStateChange.emit('failed');
 });

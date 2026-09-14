@@ -391,7 +391,7 @@ class SecureTransportManager {
         }
         else {
             await Promise.allSettled(this.iceTransports.map((iceTransport) => iceTransport.gather())).catch((e) => {
-                // エラーハンドリングを追加 (例: ログ出力)
+                // Add error handling (for example, logging).
                 log("gatherCandidates failed", e);
             });
         }

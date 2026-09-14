@@ -2,8 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.leb128encode = leb128encode;
 /**
- * Unsigned LEB128 encoder（package-private）。
- * `codec/index.ts` の public barrel からは re-export しない。decode は `av1.ts` 側の公開 API を維持する。
+ * Unsigned LEB128 encoder (package-private).
+ * Not re-exported from the public barrel in `codec/index.ts`; decoding remains part of the public API in `av1.ts`.
  */
 function leb128encode(value) {
     if (!Number.isInteger(value) || value < 0 || !Number.isSafeInteger(value)) {

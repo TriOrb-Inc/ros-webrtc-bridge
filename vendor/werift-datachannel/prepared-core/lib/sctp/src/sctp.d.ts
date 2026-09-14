@@ -61,9 +61,9 @@ export declare class SCTP {
     private sentQueue;
     private transmitting;
     private transmitRequested;
-    /**初期TSNと同じ値に初期化される単調に増加する数です. これは、新しいre-configuration requestパラメーターを送信するたびに1ずつ増加します */
+    /**A monotonically increasing number initialized to the initial TSN; incremented for each new re-configuration request parameter sent. */
     reconfigRequestSeq: number;
-    /**このフィールドは、incoming要求のre-configuration requestシーケンス番号を保持します. 他の場合では、次に予想されるre-configuration requestシーケンス番号から1を引いた値が保持されます */
+    /**Holds the re-configuration request sequence number of the incoming request; otherwise holds one less than the next expected request sequence number. */
     reconfigResponseSeq: number;
     reconfigRequest?: OutgoingSSNResetRequestParam;
     reconfigQueue: number[];

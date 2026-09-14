@@ -1,4 +1,4 @@
-/** E2E接続情報は実行時だけ渡し、reportやlogに保存しない。 */
+/** Pass E2E connection details only at runtime; never store them in reports or logs. */
 export interface BrowserConnectionOptions {
   readonly url: string;
   readonly credential: string;
@@ -7,7 +7,7 @@ export interface BrowserConnectionOptions {
   readonly timeoutMs?: number;
 }
 
-/** 接続情報やpayloadを含まないE2E結果。 */
+/** E2E results without connection information or payloads. */
 export interface BrowserConnectionReport {
   readonly browserVersion: string;
   readonly health: BrowserHealthReport;
@@ -21,7 +21,7 @@ export interface BrowserConnectionReport {
   };
 }
 
-/** health到達待ちの匿名診断。例: 一時refused後の成功 → attempts=2。 */
+/** Anonymized health-wait diagnostics. Example: success after a transient refusal gives attempts=2. */
 export interface BrowserHealthReport {
   readonly attempts: number;
   readonly firstFailure: BrowserHealthFailure | 'none';
@@ -34,12 +34,12 @@ export type BrowserHealthFailure = 'connection_refused' | 'connection_reset' | '
 
 export type BrowserConnectionPhase = 'launch' | 'health' | 'connections' | 'cleanup';
 
-/** Playwrightのhealth操作だけを注入する。入力URL/timeout、出力HTTP response。 */
+/** Inject only Playwright health operations. Inputs: URL/timeout; returns an HTTP response. */
 export interface BrowserHealthPage {
   goto(url: string, options: { timeout: number }): Promise<{ status(): number } | null>;
 }
 
-/** helper検証用の時計・待機注入。製品接続APIでは共通deadlineからtimeoutを算出する。 */
+/** Clock and wait injection for helper tests. The production connection API derives timeouts from a shared deadline. */
 export interface BrowserHealthOptions {
   readonly timeoutMs: number;
   readonly clock?: () => number;

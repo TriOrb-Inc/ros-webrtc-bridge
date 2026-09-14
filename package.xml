@@ -14,15 +14,15 @@
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
 
-  <!-- 同梱設定を使うpackage外装試験で、install済みinterfaceを解決する。 -->
+  <!-- Resolve installed interfaces in package wrapper tests using the bundled configuration. -->
   <test_depend>geometry_msgs</test_depend>
   <test_depend>nav_msgs</test_depend>
   <test_depend>std_msgs</test_depend>
 
   <!--
-    rclnodejs と WebRTC transport は package-lock.json で固定する npm 依存である。
-    bridge.yaml が参照する ROS interface package は設定を所有する deployment
-    package が exec_depend として宣言する。
+    rclnodejs and the WebRTC transport are npm dependencies pinned in package-lock.json.
+    The deployment package that owns bridge.yaml declares the referenced ROS interface
+    packages as exec_depend dependencies.
   -->
 
   <export>

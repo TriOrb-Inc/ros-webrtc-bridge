@@ -4,7 +4,7 @@ import { SessionRouter } from '../../../packages/bridge/src/router/index.js';
 import type { Channel, RouterOptions } from '../../../packages/bridge/src/router/types.js';
 import { CommandGuard } from '../../../packages/bridge/src/session/command-guard.js';
 
-/** 設定済みbindingを作る。入力例: ('/in','web_to_ros')、出力例: binding。@param name 公開名 @param direction 方向 @param guarded lease有無 @returns binding */
+/** Create a configured binding. Example: ('/in','web_to_ros') returns a binding. @param name Public name @param direction Direction @param guarded Whether a lease is required @returns Binding */
 function binding(name: string, direction: TopicBinding['direction'], guarded = false): TopicBinding {
   return { publicName: name, rosTopic: `/robot${name}`, rosType: 'std_msgs/msg/String', direction,
     rosQos: { reliability: 'reliable', durability: 'volatile', history: 'keep_last', depth: 1 },
@@ -12,10 +12,10 @@ function binding(name: string, direction: TopicBinding['direction'], guarded = f
     ...(guarded ? { commandGuard: { required: true as const, leaseMs: 250 } } : {}) };
 }
 
-/** wireをJSON bytesへ変換する。入力例: {op:'hello'}、出力例: bytes。@param wire fields @returns bytes */
+/** Convert wire fields to JSON bytes. Example: {op:'hello'} returns bytes. @param wire Fields @returns Bytes */
 export function bytes(wire: Record<string, unknown>): Uint8Array { return Buffer.from(JSON.stringify({ v: 1, ...wire })); }
 
-/** 外部I/Oをspyに置換した結合fixture。入力例: ()、出力例: fixture。@param change 設定変更 @returns 制御可能router */
+/** Integration fixture replacing external I/O with spies. Example: () returns a fixture. @param change Configuration mutation @returns Controllable router */
 export function fixture(change: (options: RouterOptions) => RouterOptions = options => options) {
   const state = { now: 0, allowed: true, blocked: false, subscribeThrows: false, publishThrows: false, cleanupThrows: false,
     authorizeHook: (): void => {}, sendThrows: false };
@@ -32,7 +32,7 @@ export function fixture(change: (options: RouterOptions) => RouterOptions = opti
     authorize: () => { state.authorizeHook(); return state.allowed; },
     limits: { maxHandles: 8, maxRequests: 16, requestTtlMs: 1000, maxControlRateHz: 100 },
     ros: {
-      /** listener登録。入力: 公開名/callback、出力: 解除関数。 */
+      /** Register a listener. Inputs: public name/callback; output: unsubscribe function. */
       subscribe(topic, callback) {
         if (state.subscribeThrows) throw new Error('subscribe failed');
         const set = listeners.get(topic) ?? new Set();
@@ -40,10 +40,10 @@ export function fixture(change: (options: RouterOptions) => RouterOptions = opti
         callback({ data: 'initial' });
         return () => { set.delete(callback); if (state.cleanupThrows) throw new Error('cleanup failed'); };
       },
-      /** 同期ROS publish spy。入力: 公開名/native、出力なし。 */
+      /** Synchronous ROS publish spy. Inputs: public name/native; no output. */
       publish(topic, native) { if (state.publishThrows) throw new Error('native failed'); published.push({ topic, native }); },
     },
-    /** transport spy。入力: label/bytes、出力: 受理可否。 */
+    /** Transport spy. Inputs: label/bytes; output: whether accepted. */
     send(channel, raw) {
       if (state.sendThrows) throw new Error('transport failed');
       if (state.blocked) return false;
@@ -52,16 +52,16 @@ export function fixture(change: (options: RouterOptions) => RouterOptions = opti
     },
   });
   const router = new SessionRouter(options);
-  /** controlを送る。入力例: {op:'hello'}、出力なし。 */
+  /** Send control data. Example input: {op:'hello'}; no output. */
   const control = (wire: Record<string, unknown>): void => router.receive('ros.control.v1', bytes(wire));
-  /** ROS sampleを注入する。入力例: '/out',{data:'x'}、出力なし。 */
+  /** Inject a ROS sample. Example inputs: '/out',{data:'x'}; no output. */
   const emit = (topic: string, native: unknown): void => { for (const callback of listeners.get(topic) ?? []) callback(native); };
-  /** 最新応答を取得する。入力例: ()、出力例: welcome。 */
+  /** Retrieve the latest response. Example: () returns welcome. */
   const last = (): Record<string, any> => output.at(-1)!.wire;
   return { state, output, published, listeners, options, router, control, emit, last, guard };
 }
 
-/** helloとadvertiseを行う。入力例: fixture,'/cmd'、出力例: handle。@param f fixture @param topic 公開名 @returns handle */
+/** Perform hello and advertise. Example: fixture,'/cmd' returns a handle. @param f Fixture @param topic Public name @returns Handle */
 export function advertise(f: ReturnType<typeof fixture>, topic = '/in'): string {
   f.control({ op: 'hello' });
   f.control({ op: 'advertise', id: 'ad', topic });

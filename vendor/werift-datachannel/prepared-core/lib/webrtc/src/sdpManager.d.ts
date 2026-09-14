@@ -25,19 +25,19 @@ export declare class SDPManager {
     get _remoteDescription(): SessionDescription | undefined;
     get inactiveRemoteMedia(): MediaDescription | undefined;
     /**
-     * MediaDescriptionをトランシーバー用に作成
+     * Create a MediaDescription for the transceiver.
      */
     createMediaDescriptionForTransceiver(transceiver: RTCRtpTransceiver, direction: MediaDirection): MediaDescription;
     /**
-     * MediaDescriptionをSCTP用に作成
+     * Create a MediaDescription for SCTP.
      */
     createMediaDescriptionForSctp(sctp: RTCSctpTransport): MediaDescription;
     /**
-     * トランスポートの情報をMediaDescriptionに追加
+     * Add transport information to the MediaDescription.
      */
     addTransportDescription(media: MediaDescription, dtlsTransport: RTCDtlsTransport): void;
     /**
-     * 一意のMIDを割り当て
+     * Assign a unique MID.
      */
     allocateMid(type?: "dc" | "av" | ""): string;
     parseSdp({ sdp, isLocal, signalingState, type, }: {
@@ -48,11 +48,11 @@ export declare class SDPManager {
     }): SessionDescription;
     private validateDescription;
     /**
-     * オファーSDPを構築
+     * Build the offer SDP.
      */
     buildOfferSdp(transceivers: RTCRtpTransceiver[], sctpTransport: RTCSctpTransport | undefined): SessionDescription;
     /**
-     * アンサーSDPを構築
+     * Build the answer SDP.
      */
     buildAnswerSdp({ transceivers, sctpTransport, signalingState, }: {
         transceivers: RTCRtpTransceiver[];
@@ -65,7 +65,7 @@ export declare class SDPManager {
     registerMid(mid: string): void;
     get remoteIsBundled(): GroupDescription | undefined;
     /**
-     * ローカルセッション記述を設定し、トランスポート情報を追加する
+     * Set the local session description and add transport information.
      */
     setLocal(description: SessionDescription, transceivers: RTCRtpTransceiver[], sctpTransport?: {
         dtlsTransport: RTCDtlsTransport;

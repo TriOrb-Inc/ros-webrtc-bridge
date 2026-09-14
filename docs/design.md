@@ -1,29 +1,29 @@
-# ROS 2 / WebRTC DataChannel Bridge 設計検討
+# ROS 2 / WebRTC DataChannel Bridge Design
 
-状態: 構想設計と接続PoC。実装・検証範囲は§14に記載する。以下のv0.1目標、対応matrix、性能条件のすべてを達成済みとして扱わない。
+Status: conceptual design and connection proof of concept. Section 14 records implemented and verified scope. Do not interpret all v0.1 goals, support matrices, or performance conditions below as achieved.
 
-## 1. 推奨方針と前提
+## 1. Recommended approach and assumptions
 
-**設定駆動の独立したTopicブリッジを作る。TypeScript / rclnodejsを中心に、WebRTC、セッション、型変換を分離する。** 他のGatewayとは同じROS graphへ接続する独立サービスとして併用できる構成にする。
+**Build an independent, configuration-driven Topic bridge. Use TypeScript/rclnodejs while separating WebRTC, sessions, and type conversion.** It should run alongside other Gateways as an independent service connected to the same ROS graph.
 
-初期利用者はブラウザの監視UIと操作UIと仮定する。ネイティブクライアントも同じwire protocolを実装できる。1プロセスは1つのROS domainへ接続し、複数のWebRTC peerを受け入れる。ROS 2間の透過DDSネットワーク拡張は対象外とする。
+Assume the first users are browser monitoring and control UIs. Native clients can implement the same wire protocol. One process connects to one ROS domain and accepts multiple WebRTC peers. Transparent DDS network extension between ROS 2 systems is out of scope.
 
-最初の価値は、小〜中サイズのTopicを、用途に応じた配送設定で双方向に扱えること。大容量センサーデータを必須用途とはせず、binary/CDRや断片化の優先度は上げない。センサーデータの型そのものは制限せず、対応codecとpayload上限内のmessageを扱う。
+The initial value is bidirectional exchange of small-to-medium Topics with application-appropriate delivery settings. Large sensor data is not a mandatory use case; binary/CDR and fragmentation are not priorities. Sensor message types are not inherently prohibited: messages are supported when their codec is available and their payload fits the limits.
 
-WebRTC採用だけで低遅延や通信成功を保証するとはしない。WAN接続にはシグナリングと、環境によってTURNが必要になる。
+WebRTC alone does not guarantee low latency or successful communication. WAN connections require signaling and, in some environments, TURN.
 
-## 2. 設計原則
+## 2. Design principles
 
-- 宣言的な設定からTopicを公開し、Topicごとの個別handlerを不要にする。
-- signaling、session router、ROS adapterを分離する。ROS adapterはHTTPやWebRTCに依存しない小さなinterfaceとする。
-- mockと実ROS adapterに共通の契約を設け、protocol試験と実ROS試験を分離する。
-- ROS interfaceから公開catalogとJSON Schemaを生成し、設定との二重管理を避ける。
-- ROS messageの構造を基本的に維持し、任意field mapping DSLは初期版に含めない。
-- publisher/subscriptionの共有keyには、解決済みtopic、type、正規化したROS QoSを含める。異なるQoSを誤って共有しない。
-- 型変換はROS schemaに従い、通常のstringを見た目から整数へ変換しない。固定長配列などの制約も送受信両方向で検証する。
-- 継続subscriptionと明示的なsnapshot取得を分け、QoSの検証とsessionに結び付いた認可を設ける。
+- Expose Topics through declarative configuration without individual Topic handlers.
+- Separate signaling, the session router, and the ROS adapter. Keep the ROS adapter interface small and independent of HTTP/WebRTC.
+- Give mock and real ROS adapters a shared contract while separating protocol tests from real ROS tests.
+- Generate public catalogs and JSON Schemas from ROS interfaces, avoiding duplicate definitions in configuration.
+- Preserve ROS message structure by default. Do not include an arbitrary field-mapping DSL in the initial version.
+- Publisher/subscription sharing keys include the resolved Topic, type, and normalized ROS QoS; do not accidentally share different QoS configurations.
+- Convert according to ROS schemas, never inferring integers from ordinary string contents. Validate fixed arrays and other constraints in both directions.
+- Separate ongoing subscriptions from explicit snapshots and provide QoS checks and session-bound authorization.
 
-## 3. 全体構成
+## 3. Architecture
 
 ```mermaid
 flowchart LR
@@ -50,36 +50,36 @@ flowchart LR
     ROS <-->|Topic Pub/Sub| GRAPH[ROS 2 graph]
 ```
 
-- **RosAdapter**: 型ロード、ROS entityの生成・破棄、publish、subscription、QoS診断。WebRTCを知らない。
-- **SchemaRegistry / Codec**: ROS型定義、wire schema、検証、encode/decode。transportを知らない。
-- **SessionRouter**: topic/type/方向の認可、logical subscription、publish handle、sequence、queue、rate制限。
-- **WebRtcTransport**: PeerConnection、DataChannel、ICE、送信buffer、接続状態。ROSを知らない。
-- **SignalingAdapter**: 認証済みのSDP/ICE交換。ローカルHTTP方式と外部rendezvous方式を同じsession生成処理へ接続する。
+- **RosAdapter**: type loading, ROS entity creation/destruction, publication, subscriptions, and QoS diagnostics. Does not know WebRTC.
+- **SchemaRegistry / Codec**: ROS definitions, wire schemas, validation, encode/decode. Does not know transport.
+- **SessionRouter**: Topic/type/direction authorization, logical subscriptions, publish handles, sequences, queues, and rates.
+- **WebRtcTransport**: PeerConnection, DataChannels, ICE, send buffers, and connection state. Does not know ROS.
+- **SignalingAdapter**: authenticated SDP/ICE exchange. Connects local HTTP and external rendezvous approaches to the same session creation path.
 
-共有ライブラリへの抽出は共通interfaceが安定してから行う。Gateway単体で起動・運用できる構成とする。
+Extract shared libraries only after common interfaces stabilize. The Gateway must start and operate independently.
 
-## 4. 実装技術の比較
+## 4. Implementation technology comparison
 
-| 候補 | 利点 | 制約・採用判断 |
+| Candidate | Advantages | Constraints and decision |
 | --- | --- | --- |
-| TypeScript + rclnodejs + node-datachannel | TSでアプリを統一でき、libdatachannelのNode bindingが配送設定・buffer APIを提供 | node-datachannel / libdatachannelはMPL-2.0で、本プロジェクトの依存方針では採用対象外 |
-| TypeScript + rclnodejs + werift | 同じアプリ構造でWebRTC stackもTS。werift本体はMIT | 優先評価候補。推移依存・配布物を確認し、ブラウザ相互接続・輻輳時負荷を検証 |
-| Python + rclpy + aiortc | ROS標準Python型とasyncioを利用しやすい | SDKとサーバーで言語が分かれる。executorとasyncioの所有権分離が必要 |
-| C++ + rclcpp + libdatachannel | GenericSubscription / GenericPublisherとserialized dataを扱える | MPL-2.0依存のため現方針では採用対象外。C++化が必要なら方針に適合するtransportを別途評価 |
+| TypeScript + rclnodejs + node-datachannel | Unified TS application; libdatachannel Node bindings provide delivery settings and buffer APIs | node-datachannel/libdatachannel are MPL-2.0 and excluded by this project's dependency policy |
+| TypeScript + rclnodejs + werift | Same application structure with a TS WebRTC stack; werift itself is MIT | Preferred evaluation candidate. Review transitive dependencies/distribution artifacts and test browser interoperability and congestion load |
+| Python + rclpy + aiortc | Convenient standard ROS Python types and asyncio | SDK/server use different languages; executor and asyncio ownership must be separated |
+| C++ + rclcpp + libdatachannel | Supports GenericSubscription/GenericPublisher and serialized data | Excluded due to MPL-2.0. If C++ becomes necessary, evaluate a policy-compliant transport separately |
 
-**TS構成とrclnodejsを使い、WebRTCは§14のライセンス適合を確認したwerift coreで接続PoCを行う。** SDKとサーバーの型・契約を統一しやすい構成を維持し、[`CONTRIBUTING.md`](../CONTRIBUTING.md) の依存方針を守る。
+**Use TypeScript and rclnodejs, with the license-reviewed werift core described in §14 for the WebRTC connection PoC.** Keep SDK/server types and contracts easy to align and follow the dependency policy in [`CONTRIBUTING.md`](../CONTRIBUTING.md).
 
-本体のライセンスは [`Apache-2.0`](../LICENSE)。依存ライブラリと配布物のライセンス一覧は採用バージョンごとに記録し、必要な著作権・ライセンス表示を維持する。
+The project uses [`Apache-2.0`](../LICENSE). Record dependency and distribution licenses for every adopted version and retain required copyright/license notices.
 
-一次資料: [rclnodejs](https://github.com/RobotWebTools/rclnodejs)、[node-datachannel](https://github.com/murat-dogan/node-datachannel)、[API](https://github.com/murat-dogan/node-datachannel/blob/master/API.md)、[werift](https://github.com/shinyoshiaki/werift-webrtc)、[aiortc](https://aiortc.readthedocs.io/en/latest/)、[libdatachannel](https://github.com/paullouisageneau/libdatachannel)。
+Primary references: [rclnodejs](https://github.com/RobotWebTools/rclnodejs), [node-datachannel](https://github.com/murat-dogan/node-datachannel), [API](https://github.com/murat-dogan/node-datachannel/blob/master/API.md), [werift](https://github.com/shinyoshiaki/werift-webrtc), [aiortc](https://aiortc.readthedocs.io/en/latest/), [libdatachannel](https://github.com/paullouisageneau/libdatachannel).
 
-## 5. 設定と公開契約
+## 5. Configuration and public contracts
 
-設定の正本は`bridge.yaml`とし、JSON Schemaで起動時検証する。OpenAPIはHTTP signaling/catalog APIの記述に使い、DataChannel protocolは別のversion付き仕様とJSON Schemaで定義する。AsyncAPI出力は将来の生成物候補であり、v0.1の必須依存にしない。[AsyncAPI仕様](https://www.asyncapi.com/docs/reference/specification/v3.0.0)
+Use `bridge.yaml` as the configuration authority, validated at startup with JSON Schema. Use OpenAPI for HTTP signaling/catalog APIs; define the DataChannel protocol through a separate versioned specification and JSON Schema. AsyncAPI output is a possible future artifact, not a required v0.1 dependency. [AsyncAPI specification](https://www.asyncapi.com/docs/reference/specification/v3.0.0)
 
-`web_to_ros`はWeb clientが送信しGatewayがROS publishする方向、`ros_to_web`はその逆。`publish`の主体が曖昧にならない名前にする。
+`web_to_ros` means a Web client sends and the Gateway publishes to ROS; `ros_to_web` is the reverse. Names should make the publisher's role unambiguous.
 
-Web公開名は原則としてROS Topic名と一致させる。`topics`のkeyをWeb公開名とし、`ros_topic`を省略した場合はkeyをROS Topic名として使用する。別名が必要な場合だけ`ros_topic`を明示する。いずれも設定に列挙したTopicだけを公開し、ROS graphの自動公開は行わない。
+Public Web names normally match ROS Topic names. Keys in `topics` are public names; if `ros_topic` is absent, use the key as the ROS Topic name too. Specify `ros_topic` only when an alias is needed. Expose only configured Topics, never automatically expose the ROS graph.
 
 ```yaml
 version: 1
@@ -116,43 +116,43 @@ topics:
     command_guard: { required: true, lease_ms: 250 }
 ```
 
-これらは初期評価用の値で、性能上限や安全基準ではない。設定例だけで認証基盤が完成するわけではなく、identity validatorと権限policyを別途設定する。未設定の権限は拒否する。lease値は対象ネットワークとcontrollerの停止条件に合わせて決める。
+These are initial evaluation values, not performance limits or safety standards. The example does not provide a complete authentication system: configure identity validation and permission policy separately. Unspecified permissions are denied. Choose leases for the target network and controller stopping requirements.
 
-例えば上の`/cmd_vel`のkeyを`/operator/velocity`へ変更し、同じentryへ`ros_topic: /cmd_vel`を追加すると、Web公開名だけを変更できる。ROS remapは接続先へ適用し、Web公開名は設定したkeyのままとする。commandのwriter所有権は別名の数にかかわらず、remap後の正規化したROS出力Topic単位で管理する。
+For example, rename the `/cmd_vel` key to `/operator/velocity` and add `ros_topic: /cmd_vel` to change only the public name. Apply ROS remapping to the destination; retain the configured key as the public Web name. Command writer ownership is managed per normalized, remapped ROS output Topic regardless of the number of aliases.
 
-catalogは権限のあるWeb公開名、型、方向、wire schema ID、配送方式、サイズ/rate上限のみを返す。以降のaliasはこのWeb公開名を指す。設定外のTopicや、client指定の任意ROS型を公開しない。HTTPによるschema取得は認証付き・サイズ上限付きとし、大きなschemaを16KiBのDataChannelへ詰め込まない。
+The catalog returns only authorized public names, types, directions, wire schema IDs, delivery modes, and size/rate limits. Later references to aliases mean these public names. Do not expose unconfigured Topics or arbitrary client-selected ROS types. HTTP schema retrieval must be authenticated and size-bounded; do not pack large schemas into a 16 KiB DataChannel message.
 
-設定の読み込みは起動時のみを初期仕様とする。ACL撤回はsession管理の別操作として即時反映する。
+Initially, load configuration only at startup. Apply ACL revocation immediately through a separate session-management operation.
 
-## 6. 接続・シグナリング
+## 6. Connection and signaling
 
-1. 認証済みclientがrobotに対する接続権限を提示する。
-2. Gatewayはidentity、robot、session ID、有効期限、許可された操作を結び付ける。
-3. browserをoffererに固定し、固定labelのDataChannelを作成してSDP/ICEを交換する。余分なchannelや不正な配送設定は拒否する。
-4. 接続後の`hello`でprotocol major、codec、上限を確認し、catalogから許可されたTopicだけを開く。
-5. 切断・失効時はsessionを無効化し、queue、publish handle、leaseを破棄する。
+1. An authenticated client presents permission to connect to a robot.
+2. The Gateway associates identity, robot, session ID, expiration, and allowed operations.
+3. The browser is always the offerer, creating fixed-label DataChannels before SDP/ICE exchange. Extra channels and invalid delivery settings are rejected.
+4. After connection, `hello` checks protocol major version, codec, and limits; the client opens only authorized catalog Topics.
+5. Disconnection or revocation invalidates the session and discards queues, publish handles, and leases.
 
-M0はGatewayへ直接到達できるHTTPS offer/answer方式で、ICE gathering完了後にSDPを交換する。インターネット向けv0.1ではロボットから外向きWSSで接続する小さなrendezvousを追加し、trickle ICEを扱う。TURNは別サービスとして接続設定と検証手順を提供する。シグナリングは接続情報交換、TURNは必要時のデータ中継であり役割が異なる。
+M0 uses directly reachable HTTPS offer/answer signaling and exchanges SDP after ICE gathering completes. Internet-oriented v0.1 adds a small rendezvous reached through outbound robot WSS and supports trickle ICE. TURN remains a separate service with configuration and verification instructions. Signaling exchanges connection information; TURN relays data when necessary.
 
-シグナリングをtrusted boundaryとして扱い、認証したsessionとSDP fingerprintを対応付ける。TLS/DTLSがあるだけでTopic操作が認可されるわけではない。[WebRTC Security Architecture](https://www.rfc-editor.org/rfc/rfc8827.html)
+Treat signaling as a trusted boundary and associate authenticated sessions with SDP fingerprints. TLS/DTLS alone does not authorize Topic operations. [WebRTC Security Architecture](https://www.rfc-editor.org/rfc/rfc8827.html)
 
-ICE失敗時のv0.1は新しいPeerConnectionとepochを作る。SDKは再認証後にsubscriptionを再登録できるが、publish payloadとcommandの再送は行わない。NAT越えはdirectとrelayの両方を検証し、TURN TCP/TLSやUDP遮断環境の対応は実測した組合せを明示する。[ICE](https://www.rfc-editor.org/rfc/rfc8445.html)、[TURN](https://www.rfc-editor.org/rfc/rfc8656.html)
+On ICE failure, v0.1 creates a new PeerConnection and epoch. After reauthentication, the SDK may register subscriptions again but must not replay publish payloads or commands. Verify both direct and relay NAT traversal, explicitly naming measured TURN TCP/TLS and UDP-blocked combinations. [ICE](https://www.rfc-editor.org/rfc/rfc8445.html), [TURN](https://www.rfc-editor.org/rfc/rfc8656.html)
 
-## 7. DataChannelとwire protocol
+## 7. DataChannels and wire protocol
 
-1 peerにつき固定3channelにTopicを多重化する。Topicごとにchannelを増やさない。
+Multiplex Topics over three fixed channels per peer. Do not create a separate channel for each Topic.
 
-| label | 設定 | 用途 |
+| Label | Configuration | Purpose |
 | --- | --- | --- |
-| `ros.control.v1` | ordered / reliable | hello、subscribe、unsubscribe、advertise、unadvertise、lease、ack/error |
-| `ros.reliable.v1` | ordered / reliable | 欠落より到達を重視する小さな状態通知 |
-| `ros.realtime.v1` | unordered / maxRetransmits=0 | 最新値優先のtelemetry、継続的なsetpoint |
+| `ros.control.v1` | ordered / reliable | hello, subscribe, unsubscribe, advertise, unadvertise, lease, acknowledgements/errors |
+| `ros.reliable.v1` | ordered / reliable | Small state updates prioritizing delivery over loss |
+| `ros.realtime.v1` | unordered / maxRetransmits=0 | Latest-value telemetry and continuous setpoints |
 
-`maxPacketLifeTime`と`maxRetransmits`は同時指定しない。各channelは同じSCTP associationの輻輳制御を共有するので、channel分離は帯域や遅延の保証ではない。[WebRTC API](https://www.w3.org/TR/webrtc/)、[RFC 8831 §5, §6.6](https://www.rfc-editor.org/rfc/rfc8831.html)
+Do not specify both `maxPacketLifeTime` and `maxRetransmits`. All channels share congestion control in one SCTP association, so separating channels does not guarantee bandwidth or latency. [WebRTC API](https://www.w3.org/TR/webrtc/), [RFC 8831 §5, §6.6](https://www.rfc-editor.org/rfc/rfc8831.html)
 
-protocolはrosbridgeのpublish/subscribeの考え方を参考にするが、互換性を宣言しない。session権限、codec、handle、ack意味論が異なるため専用SDKを用意する。[rosbridge protocol](https://github.com/RobotWebTools/rosbridge_suite/blob/ros2/ROSBRIDGE_PROTOCOL.md)
+The protocol borrows rosbridge's publish/subscribe model but does not claim compatibility. Session permissions, codecs, handles, and acknowledgement semantics differ, requiring a dedicated SDK. [rosbridge protocol](https://github.com/RobotWebTools/rosbridge_suite/blob/ros2/ROSBRIDGE_PROTOCOL.md)
 
-操作例（識別子は説明用、発行済み権限を表すものではない）:
+Example operations (identifiers are illustrative, not issued permissions):
 
 ```json
 {"v":1,"op":"subscribe","id":"r1","topic":"/odom"}
@@ -160,94 +160,94 @@ protocolはrosbridgeのpublish/subscribeの考え方を参考にするが、互�
 {"v":1,"op":"message","stream_id":"s1","epoch":"e1","seq":"42","data":{"header":{},"pose":{},"twist":{}}}
 ```
 
-最後の`data`は構造説明用の省略形であり、完全なOdometry入力ではない。`advertise`で許可されたaliasに対するpublisher handleを取得し、`publish`はそのhandle、epoch、seq、data、必要ならlease IDを送る。受信側はpeer/sessionとの所有関係も検証する。Topic名を毎回自由入力してpublishするAPIにはしない。
+The final `data` is abbreviated to explain structure; it is not valid complete Odometry input. `advertise` obtains a publisher handle for an authorized alias. `publish` sends that handle, epoch, seq, data, and a lease ID when required. The receiver also validates peer/session ownership. Publication must not accept freely chosen Topic names on each request.
 
-controlとdataの到着順序には依存しない。`subscribed`の後にclientが`ready(stream_id)`を送ってから配信を開始する。clientは`ready`送信前に受信handlerを登録する。unsubscribe直後の飛行中messageはSDKがtombstoneで破棄し、同じsession内でhandleを再利用しない。
+Do not depend on arrival order between control and data. Delivery starts only after the client receives `subscribed` and sends `ready(stream_id)`. Register receive handlers before ready. The SDK discards in-flight messages after unsubscribe using tombstones and never reuses handles within a session.
 
-- control requestはrequest IDで対応付け、重複要求の応答cacheには件数と期限を設ける。
-- `seq`はstream / publisher handle内で単調増加するdecimal string。欠落は許し、逆順・重複を破棄する。ROS publisherが複数ならGateway受信順であり、ROS全体の因果順序ではない。
-- publishのackを返す場合は`published_to_ros`を使い、「ROS publish APIが成功した」ことだけを表す。controller受信・処理完了やexactly-onceではない。
-- reliable streamのqueue超過は`slow_consumer`として当該streamを停止し、黙って完全配送を装わない。realtime streamは古い値を捨ててdrop数を計測する。
-- protocol major不一致は接続拒否、未対応機能は明示エラー。未知operation、過剰なJSON nesting、不正な型/長さは拒否する。
+- Correlate control requests by request ID. Bound duplicate-response caches by count and lifetime.
+- `seq` is a monotonically increasing decimal string per stream/publisher handle. Gaps are allowed; reordered and duplicate values are discarded. With multiple ROS publishers, this is Gateway receipt order, not global ROS causality.
+- Publication acknowledgements use `published_to_ros` and mean only that the ROS publish API succeeded, not controller receipt/completion or exactly-once delivery.
+- Reliable stream overflow stops that stream as `slow_consumer`; do not silently pretend delivery is complete. Realtime streams discard old values and count drops.
+- Reject protocol-major mismatches at connection time; explicitly error on unsupported features. Reject unknown operations, excessive JSON nesting, and invalid types/lengths.
 
-## 8. ROS型とserialization
+## 8. ROS types and serialization
 
-v0.1は`ros-json-v1` codecとする。ROS interfaceがインストールされ、rclnodejs用bindingを生成済みであることが前提。カスタム型追加でGateway本体のコード変更は不要だが、型packageの配布・binding再生成は必要になる。[rclnodejs interface generation](https://github.com/RobotWebTools/rclnodejs#ros-2-interface-message-generation)
+v0.1 uses `ros-json-v1`. ROS interfaces must be installed and their rclnodejs bindings generated. Adding custom types requires no Gateway code changes but does require distributing type packages and regenerating bindings. [rclnodejs interface generation](https://github.com/RobotWebTools/rclnodejs#ros-2-interface-message-generation)
 
-| ROS型 | wire上の表現 |
+| ROS type | Wire representation |
 | --- | --- |
-| bool / 通常のstring / 32bit以下整数 | JSON標準型、ROSの範囲を検証 |
-| int64 / uint64 | decimal string。型schemaの該当fieldだけを整数へ変換 |
-| float32 / float64 | 有限値はnumber、非有限値は該当float fieldに限り`"NaN"` / `"Infinity"` / `"-Infinity"`。commandでは非有限値を拒否 |
-| uint8配列 | base64 string。decode後の長さ・上限を検証 |
-| その他の配列 / nested message | 再帰的なarray / object。固定長、bounded sequence/stringを検証 |
-| Time / Duration | ROSのsec / nanosec構造。wire受信時刻と混同しない |
+| bool / ordinary string / integers up to 32 bits | Standard JSON types, checked against ROS ranges |
+| int64 / uint64 | Decimal strings; convert only fields identified as integers by the schema |
+| float32 / float64 | Finite numbers; non-finite values use `"NaN"`, `"Infinity"`, or `"-Infinity"` only in float fields. Commands reject non-finite values |
+| uint8 arrays | Base64 strings; validate decoded length and bounds |
+| Other arrays / nested messages | Recursive arrays/objects; validate fixed lengths and bounded sequences/strings |
+| Time / Duration | ROS sec/nanosec structure, distinct from wire receipt time |
 
-必須fieldの欠落、未知field、範囲外を拒否し、暗黙のゼロ埋めをしない。定数はdocumentation metadataであり、明示指定なしにenum制約と解釈しない。全対象型の対応可否を起動時に判定し、未知型を部分的なschemaで公開しない。
+Reject missing required fields, unknown fields, and out-of-range values without implicit zero-filling. Constants are documentation metadata, not enum constraints unless explicitly declared. Determine support for every configured type at startup; never expose unknown types with partial schemas.
 
-schema IDはcodec versionを含めて正規化したwire schemaのhashとする。ROS type hashとは区別し、schema変更時は再接続・handle再作成を要求する。
+Schema IDs hash a normalized wire schema including codec version. Distinguish them from ROS type hashes; schema changes require reconnection and handle recreation.
 
-CDRは後続版。binary header、serialization format、型識別、最大サイズ、ブラウザdecoderを合わせて規定してから追加する。Pythonにもraw publish / subscriptionの経路があるため、CDR導入とC++への書換えは別判断にする。[rclpy publisher実装](https://github.com/ros2/rclpy/blob/jazzy/rclpy/rclpy/publisher.py)
+CDR is deferred. Add it only after specifying the binary header, serialization format, type identification, maximum size, and browser decoder together. Python also supports raw publish/subscription paths, so adopting CDR and rewriting in C++ are separate decisions. [rclpy publisher implementation](https://github.com/ros2/rclpy/blob/jazzy/rclpy/rclpy/publisher.py)
 
-## 9. QoS・寿命・負荷制御
+## 9. QoS, lifetime, and load control
 
-ROS QoSとWebRTC配送設定を独立に持つ。ROS側がbest effortなら、DataChannelをreliableにしても既に失われたsampleは回復できない。deadline、liveliness、durabilityをWeb clientまで透過保存するとは定義しない。
+Keep ROS QoS and WebRTC delivery settings independent. Reliable DataChannels cannot recover samples already lost by best-effort ROS delivery. Deadline, liveliness, and durability are not defined as transparently preserved through to the Web client.
 
-best-effort publisherに対するreliable subscriptionなど、QoS不一致を診断へ出す。graphの型と設定の不一致、matched publisher数、incompatible QoSも監視対象にする。[ROS 2公式QoS文書](https://raw.githubusercontent.com/ros2/ros2_documentation/jazzy/source/Concepts/Intermediate/About-Quality-of-Service-Settings.rst)
+Report QoS mismatches, such as a reliable subscription to a best-effort publisher. Monitor graph/configuration type mismatches, matched publisher counts, and incompatible QoS. [Official ROS 2 QoS documentation](https://raw.githubusercontent.com/ros2/ros2_documentation/jazzy/source/Concepts/Intermediate/About-Quality-of-Service-Settings.rst)
 
-初期版は設定済みROS entityを起動時に生成する。Webのsubscribe/unsubscribeはsession内の配信登録を操作するだけとし、session切断で共有ROS subscriptionを破棄しない。streamでは`ready`処理後にGatewayが受信した新規sampleのみを配信し、自動的な履歴再生は行わない。process停止時は全entityを解放する。将来lazy生成するなら、topic/type/QoS単位で参照数とcache寿命を管理する。
+Initially, create configured ROS entities at startup. Web subscribe/unsubscribe only changes session delivery registrations; disconnection does not destroy shared ROS subscriptions. Streams forward new samples received by the Gateway after ready, without automatic history replay. Process shutdown releases all entities. Future lazy creation would require per-Topic/type/QoS reference counts and cache lifetimes.
 
-同一ROS Topicを別aliasで両方向へ公開した場合、Gateway自身がpublishしたsampleも通常のROS受信としてWebへ返る。初期版では送信元の完全な識別・echo抑制を保証しない。SDKは受信messageを自動的にROSへ送り返さず、ブリッジの循環構成は対象外とする。
+When the same ROS Topic is exposed in both directions under different aliases, the Gateway's own publications can return to the Web as ordinary received ROS samples. The initial version does not guarantee full source identification or echo suppression. The SDK must not automatically republish received messages to ROS; cyclic bridge topologies are out of scope.
 
-Web向けsnapshotは、Gatewayが受信した最後の1sampleを時刻・年齢付きで返す独立機能とする。DDSのtransient_local historyや複数publisherの全状態の代替にはしない。`/tf_static`の全変換集約・履歴再現はv0.1の保証外と明記する。
+A Web snapshot is a separate feature returning the last sample received by the Gateway with timestamp/age. It does not replace DDS transient_local history or the full state of multiple publishers. Aggregating all `/tf_static` transforms and reproducing its history is explicitly outside v0.1 guarantees.
 
-すべての値は設定で制限し、起動時に矛盾を検査する。
+Bound every value through configuration and reject contradictions at startup.
 
-- v0.1の単一DataChannel messageは、UTF-8 envelope込みで`min(設定上限, 16KiB, transportの合意上限)`以下。16KiBはアプリの保守的上限で、WebRTC一般の固定上限ではない。
-- 断片化はv0.1に入れない。画像・点群・LaserScan等も型だけを理由に拒否しないが、encode後のmessageが上限を超える場合は明示的なサイズエラーとする。
-- streamごとのmessage数、peerごとのqueue byte数、process全体のbyte数、DataChannel buffered bytesをすべて上限化する。telemetry cacheも計上する。
-- `bufferedAmount`とlow threshold通知で送信を再開する。controlを優先するschedulerを置き、上限超過時にROS callbackを送信待ちでblockしない。
-- ROS→JS callbackやevent loop通知自体の滞留も測定する。native側の配送待ちを制限できなければsubscription rateの調整やprocess分離を行い、アプリqueueだけでメモリ上限を保証したことにしない。
-- 遅いpeer用のqueueを他peerと分離する。最新値はalias単位でcoalescingし、controlも無制限に蓄積しない。
+- A v0.1 DataChannel message, including its UTF-8 envelope, must fit `min(configured limit, 16 KiB, negotiated transport limit)`. 16 KiB is a conservative application limit, not a universal WebRTC limit.
+- v0.1 has no fragmentation. Image, point-cloud, LaserScan, and other types are not rejected solely by type, but oversized encoded messages receive explicit size errors.
+- Bound messages per stream, queue bytes per peer, process-wide bytes, and DataChannel buffered bytes. Include telemetry caches in accounting.
+- Resume transmission using `bufferedAmount` and low-watermark notifications. Prioritize control and never block ROS callbacks waiting for sends when limits are reached.
+- Measure ROS-to-JS callback and event-loop notification backlogs too. If native pending delivery cannot be bounded, reduce subscription rates or isolate processes; application queues alone do not establish a memory bound.
+- Isolate slow-peer queues from other peers. Coalesce latest values per alias and also bound control accumulation.
 
-この方式でも1つのreliable channel上のTopic間には順序待ちがある。用途上問題になる場合は後続版で配送groupやPeerConnection分離を検討する。
+Topics on one reliable channel still wait for each other's ordering. If problematic, evaluate delivery groups or separate PeerConnections in a later version.
 
-## 10. Commandの扱いと認可
+## 10. Commands and authorization
 
-監視と操作を別権限にする。Topic、型、方向をdefault denyとし、read可能でもpublish可能とはしない。tokenの期限、session撤回、ACL変更を既存DataChannelにも反映する。
+Separate monitoring from control permissions. Default-deny Topics, types, and directions: readable does not imply publishable. Apply token expiry, session revocation, and ACL changes to existing DataChannels.
 
-`/cmd_vel`のような継続的なsetpointは次を満たす構成でのみ公開する。
+Expose continuous setpoints such as `/cmd_vel` only under these conditions:
 
-1. ROS remap後の正規化した出力Topic単位でwriterを1 sessionに限定し、明示的なarmで期限付きleaseを発行する。別aliasから同じTopicへ到達しても所有権を共有し、command設定の矛盾は起動時に拒否する。
-2. lease IDはsession/epoch/handleに結び付け、期限はGatewayのmonotonic clockで判定する。`now < expires_at` の間だけ有効とし、期限と同時刻以降は拒否する。期限切れleaseは新しいIDを再armで取得する。
-3. SDKはleaseを受け取った後に現在の入力からcommandを生成する。古いpayloadへ新しいleaseを付け直したり、切断中の操作をqueueしない。
-4. 受信時とROS publish直前に、lease、epoch、sequence、所有権、型・値、rateを再検証する。
-5. lease失効後に遅れて届いたpacketだけで操作を再開しない。DDS publisherはvolatileを使い、旧commandをdurabilityで再生しない。
+1. Limit each normalized, remapped ROS output Topic to one writer session. Explicit arm issues an expiring lease. Aliases reaching the same Topic share ownership; contradictory command settings fail at startup.
+2. Bind lease IDs to session/epoch/handle and evaluate expiry on the Gateway's monotonic clock. A lease is valid only while `now < expires_at`; equality or later rejects. Re-arm to obtain a fresh ID after expiry.
+3. The SDK generates commands from current input after receiving the lease. Never attach a new lease to an old payload or queue operations while disconnected.
+4. Revalidate lease, epoch, sequence, ownership, types/values, and rate on receipt and immediately before ROS publication.
+5. A delayed packet alone must not resume control after lease expiry. Use volatile DDS publishers so durability does not replay old commands.
 
-これにより古い通信packetが受理される時間を制限できるが、clientがpayloadを生成した正確な時刻は証明できない。ブラウザの時計を信用したTTLだけで生成時からの遅延上限を保証しない。厳密なage保証が必要なら時計同期と誤差上限を別途設計する。`maxPacketLifeTime`もcommandの有効期限の代用にはしない。
+This bounds the window in which old packets can be accepted but does not prove exactly when a client generated the payload. A TTL based only on a browser clock does not guarantee a bound on age since generation. Strict age guarantees require a separate clock-synchronization and error-bound design. `maxPacketLifeTime` is not a substitute for command expiration either.
 
-**Gatewayによる期限検証の範囲はROS publish直前まで。** その後のDDS/controller queueでの遅延は残り、volatileでも通常の飛行中commandの遅着は防げない。ROS controller側に入力途絶時のwatchdogを設けるとともに、遅着commandによる再始動を防ぐ用途では、controllerが検証できる期限・世代情報を含むcommand型または専用command gateを使う。上のTwist設定例だけではその保証は成立しない。
+**Gateway deadline validation ends immediately before ROS publication.** DDS/controller queues can still delay data; volatile durability does not prevent late delivery of ordinary in-flight commands. Provide controller-side input watchdogs. Where late commands must not restart motion, use a command type with controller-verifiable expiration/generation data or a dedicated command gate. The Twist configuration above does not establish that guarantee by itself.
 
-汎用bridgeが停止用messageを型から推測しない。ブラウザbackground化、OS suspend、gateway crashも停止条件に含めて試験する。単発の非冪等操作の完了保証はTopicのackへ持ち込まず、将来Service/Actionまたは業務側の応答Topicで設計する。
+A generic bridge must not infer stop messages from types. Include browser backgrounding, OS suspension, and Gateway crashes in stopping tests. Do not give Topic acknowledgements completion guarantees for one-off non-idempotent operations; design these later with Services/Actions or application response Topics.
 
-## 11. MVPと開発段階
+## 11. MVP and development stages
 
-| 段階 | 成果物と終了条件 |
+| Stage | Deliverables and completion criteria |
 | --- | --- |
-| M0: 技術PoC | Humble/Jazzyそれぞれの独立したDocker環境で、ROS→browserとbrowser→ROS、3channel、size制限、TURN接続、対象CPUでのbuildを確認。TS transport候補の採用versionとライブラリを決定 |
-| M1: LAN向けalpha | 設定検証、型schema、JSON codec、mock、Topic Pub/Sub、HTTP signaling、SDK、queueとepoch。認可なしの公開運用を既定にしない |
-| M2: OSS v0.1 | 認証済みrendezvous、TURN手順、leaseとACL撤回、再接続、診断、Humble/Jazzy・複数browserのCI、配布・双方向サンプル・protocol文書 |
-| M3: 実測後の拡張 | 実需要に応じてbinary/CDR、有界断片化、lazy entity、AsyncAPI export、追加言語SDKを検討。大容量センサーデータ向け機能は初期版の前提にしない |
+| M0: Technical PoC | In separate Humble/Jazzy Docker environments, verify ROS→browser, browser→ROS, three channels, size limits, TURN, and target-CPU builds. Select TS transport libraries and versions |
+| M1: LAN alpha | Configuration validation, type schemas, JSON codec, mock, Topic Pub/Sub, HTTP signaling, SDK, queues, and epochs. Public operation without authorization must not be the default |
+| M2: OSS v0.1 | Authenticated rendezvous, TURN instructions, leases/ACL revocation, reconnection, diagnostics, Humble/Jazzy and multi-browser CI, distribution, bidirectional examples, and protocol documentation |
+| M3: Extensions after measurement | Evaluate binary/CDR, bounded fragmentation, lazy entities, AsyncAPI export, and additional SDK languages based on demand. Large-sensor features are not initial prerequisites |
 
-v0.1の対象はTopicのみ。Service、Action、Parameters、映像/音声MediaTrack、SFU、多数ロボットの管理画面、自動ROS-to-ROS中継は含めない。連続動画を扱う場合は将来MediaTrackを別機能として検討する。
+v0.1 covers Topics only. It excludes Services, Actions, Parameters, video/audio MediaTracks, SFUs, multi-robot management UIs, and automatic ROS-to-ROS relaying. Continuous video may later use MediaTracks as a separate feature.
 
-初期対応対象は **ROS 2 Humble / Ubuntu 22.04とROS 2 Jazzy / Ubuntu 24.04** とする。distroごとにDockerコンテナを独立起動し、build、型binding、双方向Pub/Sub、QoSを検証する。検証用の対向ROS nodeも隔離された検証graphへ接続し、host上の既存ROS環境への混入を避ける。両distroのテスト条件は [TESTS.md](../TESTS.md) で定める。
+Initial target environments are **ROS 2 Humble / Ubuntu 22.04 and ROS 2 Jazzy / Ubuntu 24.04**. Run distro containers independently and verify builds, bindings, bidirectional Pub/Sub, and QoS. Peer ROS nodes must join isolated test graphs without contaminating the host's existing ROS environment. [TESTS.md](../TESTS.md) defines both distro test conditions.
 
-Linux amd64 / arm64をCPU候補とし、対象端末のarchitectureとnative依存の検証結果に基づいて対応範囲を確定する。Nodeとrclnodejsのversionを固定し、distroを跨ぐ共通versionが使えるかをM0で確認する。これらは対応方針であり、対応済み宣言ではない。
+Linux amd64/arm64 are candidate architectures; finalize support from target hardware and native-dependency verification. Pin Node/rclnodejs versions and check in M0 whether common versions work across distros. These are support intentions, not completed support declarations.
 
-双方向サンプルは、Webから入力Topicへpublishし、ROSの対向nodeから出力Topicを受信する経路を用意する。bindingには実際に確認した型とQoSを指定し、Topic名から型を推測しない。
+Bidirectional examples publish from the Web to an input Topic and receive an output Topic from a ROS peer. Bindings specify verified types and QoS; never infer types from Topic names.
 
-構成案:
+Proposed layout:
 
 ```text
 packages/bridge/       # config, sessions, schemas, ros adapters, transport
@@ -259,76 +259,76 @@ tests/                 # protocol, ROS integration, browser, network impairment
 docs/                  # architecture, protocol, deployment, compatibility
 ```
 
-## 12. QA・受け入れ条件
+## 12. QA and acceptance criteria
 
-具体的な受け入れ条件、テスト層、環境matrix、CI / release gate は [TESTS.md](../TESTS.md) に集約する。本書は機能と保証範囲、[CONTRIBUTING.md](../CONTRIBUTING.md) は共通の品質基準を定める。
+[TESTS.md](../TESTS.md) collects concrete acceptance criteria, test layers, environment matrices, and CI/release gates. This document defines features and guarantees; [CONTRIBUTING.md](../CONTRIBUTING.md) defines common quality requirements.
 
-型の往復、QoS互換性、channel間の順序、資源上限、認可、旧command拒否、接続経路、resource解放を検証する。mockは実ROS / browser / TURNの検証の代わりにはしない。controller側の期限検証はGateway単体と分けて評価する。
+Verify type round trips, QoS compatibility, inter-channel ordering, resource limits, authorization, old-command rejection, connection paths, and cleanup. Mocks do not replace real ROS/browser/TURN verification. Evaluate controller deadline checks separately from the Gateway.
 
-診断はpeer数、ICE状態/direct・relay経路、ROS matched数/QoS不一致、topic別rate/bytes/drop、queue滞留、bufferedAmount、publish拒否理由を持つ。payload・認証情報は既定logに出さない。
+Diagnostics include peer counts, ICE state/direct or relay paths, ROS matched counts/QoS mismatches, per-Topic rate/bytes/drops, queue backlogs, bufferedAmount, and publication rejection reasons. Do not log payloads or authentication information by default.
 
-レイテンシp50/p95/p99、CPU、RSS、接続確立時間をサイズ/rate/CPU/browser/network条件付きで測る。異なる端末の時刻差をそのまま片道遅延にせず、同期誤差を評価するか往復測定を使う。SLOはPoC結果と実用途から設定し、現段階で未測定のms値や同時接続数を保証しない。
+Measure latency p50/p95/p99, CPU, RSS, and connection time with message size, rate, CPU, browser, and network conditions recorded. Do not treat timestamps from different devices as one-way latency without synchronization-error assessment; otherwise use round trips. Set SLOs from PoC results and actual use cases, rather than guaranteeing unmeasured millisecond values or concurrent connection counts.
 
-## 13. 決定事項と未確定事項
+## 13. Decisions and open questions
 
-| 項目 | 設計方針 |
+| Item | Design direction |
 | --- | --- |
-| 大容量センサーデータ | 必須用途とせず、型だけで禁止しない。payload上限を維持し、binary/CDR・断片化の優先度は上げない |
-| 初期ROS distro | HumbleとJazzyの両方を対象とする |
-| 検証環境 | distroごとのDockerコンテナで独立起動し、両方向のPub/Subを検証する |
-| Web公開名 | 原則ROS Topic名と一致させ、YAMLで別名の定義も可能とする |
+| Large sensor data | Not mandatory and not forbidden solely by type. Preserve payload limits; do not prioritize binary/CDR or fragmentation |
+| Initial ROS distros | Target both Humble and Jazzy |
+| Test environment | Independent distro-specific Docker containers for bidirectional Pub/Sub verification |
+| Public Web names | Match ROS Topic names by default; support YAML aliases |
 
-M0では、次の事項を検証・確定する。
+M0 verifies and decides:
 
-- weriftの推移依存・配布物のライセンス適合、ブラウザ相互接続、性能条件。
-- 対象端末のCPU architecture、Node/rclnodejsのversion、対応browser、認証基盤、TURN配置。
-- サンプルTopicの型・QoSと対向nodeの契約。
-- controller側watchdog・期限検証の契約、必要なlatency/rateと性能budget。
+- License compliance of werift dependencies/artifacts, browser interoperability, and performance conditions.
+- Target CPU architectures, Node/rclnodejs versions, browsers, authentication infrastructure, and TURN placement.
+- Example Topic types/QoS and peer-node contracts.
+- Controller watchdog/deadline contracts, required latency/rates, and performance budgets.
 
-対応環境と性能条件は、検証結果に基づいて公開する。
+Publish supported environments and performance conditions based on verification results.
 
-## 14. モジュール試作の契約と残る接続境界
+## 14. Prototype contracts and remaining connection boundaries
 
-`packages/bridge/src/`にconfig、codec、session、router、ROS adapter、transport、HTTPS signaling、起動CLIを実装している。`package.xml`と`CMakeLists.txt`でament/colconへ接続し、runtime、npm依存、設定、launch、`ros2 run` wrapperをinstallする。Humble/Jazzyのarm64 Docker、Node 22.22.2、rclnodejs 2.2.0、Chromium 153.0.8010.12でString/Twistと外部BridgeFrameの双方向通信、直接接続、TURN UDP、旧command拒否、再接続を検証した。接続Gatewayはcolcon install済みartifactから起動する。package外装はclean sourceと事前構築npm cacheからnetwork遮断container内でbuild/test/run/launchを再構成する。amd64はPR matrixで実測し、Debian/bloom公開は当面対象外とする。他browser・正式性能budget等のM0残件は別途評価する。
+`packages/bridge/src/` implements configuration, codecs, sessions, routing, a ROS adapter, transport, HTTPS signaling, and a startup CLI. `package.xml` and `CMakeLists.txt` integrate ament/colcon to install the runtime, npm dependencies, configuration, launch files, and `ros2 run` wrapper. Bidirectional String/Twist and external BridgeFrame exchange, direct connections, TURN UDP, old-command rejection, and reconnection were verified with Humble/Jazzy arm64 Docker, Node 22.22.2, rclnodejs 2.2.0, and Chromium 153.0.8010.12. Connection tests start installed colcon artifacts. Package tests reconstruct build/test/run/launch from clean source and a prepopulated npm cache in network-isolated containers. amd64 is measured through the PR matrix; Debian/bloom publication remains out of scope. Other-browser support, formal performance budgets, and other M0 work require further evaluation.
 
-### HTTP signaling文書
+### HTTP signaling documentation
 
-同じHTTPS listenerから `/docs`、`/openapi.json`、`/openapi.yaml` を認証なしで公開する。OpenAPIの単一正本は `packages/bridge/src/signaling/openapi.ts` であり、healthとBearer保護されたofferの実HTTP契約だけを記述する。Topic Pub/Sub、catalog、ready等のDataChannel操作をREST endpointへ変換しない。Swagger UIは固定npm依存の同origin assetsを使い、相対server URLにより配備先portに追随する。外部validatorと認証永続化を無効にし、serverのcredentialを文書へ含めない。
+The same HTTPS listener serves `/docs`, `/openapi.json`, and `/openapi.yaml` without authentication. `packages/bridge/src/signaling/openapi.ts` is the single OpenAPI authority, describing only health and Bearer-protected offer HTTP contracts. Topic Pub/Sub, catalog, ready, and other DataChannel operations are not converted into REST endpoints. Swagger UI uses same-origin assets from a pinned npm dependency and a relative server URL that follows the deployment port. External validation and credential persistence are disabled, and server credentials are excluded from documentation.
 
-### 起動設定
+### Startup configuration
 
-[設定loader](../packages/bridge/src/config/README.md)は[bridge.yaml](../examples/bridge.yaml)を検証し、変更できないbinding配列を返す。型loaderによる確認済み型名一覧と、ROS adapterのremap関数を注入する。公開名は保持し、writer所有権には解決済みROS名を使う。同一出力Topicへ向かうaliasで、型・QoS・access・guard・rate・配送・queueが食い違う場合は起動を拒否する。
+The [configuration loader](../packages/bridge/src/config/README.md) validates [bridge.yaml](../examples/bridge.yaml) and returns immutable bindings. It receives verified type names and the ROS adapter's remapping/normalization function. Public names remain unchanged; writer ownership uses resolved ROS names. Native creation uses original input names, and actual Topic names are checked afterward. Aliases sharing an output with conflicting type, QoS, access, guard, rate, delivery, or queue settings reject startup.
 
-初期実装のQoS historyは`keep_last`のみ。配送設定はreliableなら有限FIFO、realtimeなら1件のlatestを必須とする。設定mapの未知field、重複key、YAML alias、独自tagを拒否し、設定文書のUTF-8 byte数とTopic数も制限する。名前は絶対ASCII名、247文字以下とし、native側のRMW検証もadapterで行う。[RMW完全Topic名の検証](https://github.com/ros2/rmw/blob/jazzy/rmw/include/rmw/validate_full_topic_name.h)
+The prototype supports only `keep_last` QoS history. Delivery requires finite FIFO for reliable or one-entry latest for realtime. Unknown fields, duplicate keys, YAML aliases, and custom tags are rejected; document UTF-8 bytes and Topic count are bounded. [RMW fully qualified Topic validation](https://github.com/ros2/rmw/blob/jazzy/rmw/include/rmw/validate_full_topic_name.h)
 
-設定解決とentity生成は同一ROS backendを使用する。所有名は1回remapした名前とし、native生成には元の入力名を渡して、生成後の実Topic名との一致を確認する。解決済み名を再remapしない。`/source→/target`と`/target→/other`の連鎖ruleがあっても、guard所有名と実出力名を一致させる。
+Configuration resolution and entity creation use the same ROS backend. Ownership names are resolved once; native creation receives the original name and verifies the resulting actual Topic. Resolved names are not remapped again. With chained `/source→/target` and `/target→/other` rules, guard ownership and actual output remain consistent.
 
-### 型変換
+### Type conversion
 
-[codec](../packages/bridge/src/codec/README.md)は明示したfield descriptorを生成時にsnapshotする。64bit整数はnative側`bigint`、wire側canonical decimal string、uint8列はnative側`Uint8Array`、wire側padding付きcanonical base64に固定する。float32はbinary32へ丸めてoverflowを拒否する。string上限はUTF-8 bytesとし、孤立surrogateを拒否する。
+The [codec](../packages/bridge/src/codec/README.md) snapshots explicit field descriptors. Native 64-bit integers use `bigint`, wire integers use canonical decimal strings, native uint8 sequences use `Uint8Array`, and wire bytes use padded standard base64. float32 rounds to binary32 and rejects overflow. String bounds count UTF-8 bytes, and lone surrogates are rejected.
 
-型値は欠落・未知field、配列のhole・追加property、getter等を暗黙に捨てない。commandには`allowNonFinite: false`を必須指定する。descriptor/payloadの深さ、node数、配列長、string/bytes長はfactory optionで制限する。rclnodejsのint64 scalarは生成方式によりsafe範囲のnumber、decimal string、または`bigint`として読み、codecへは`bigint`を渡す。ROS publish時もrclnodejs 2.2.0の生成message setterが要求する`bigint`を維持する。
+Missing/unknown fields, array holes/extra properties, and getters are not silently discarded. Commands require `allowNonFinite: false`. Factory options bound descriptor/payload depth, node counts, array lengths, and string/byte lengths. Depending on generated bindings, rclnodejs scalar int64 may arrive as safe-range numbers, decimal strings, or `bigint`; the codec receives normalized `bigint`. ROS publication preserves the `bigint` expected by rclnodejs 2.2.0 generated setters.
 
-ROS型はrclnodejs `MessageIntrospector`からdescriptorを生成し、未知primitiveを推測で公開しない。schema IDは`codec`、`descriptor`、`allowNonFinite`を含むobjectを再帰的なkey昇順で正規化したJSONのSHA-256とする。array順序を保持し、同じ型でもcommandの非有限値拒否policyが異なればhashを変える。配布JSON Schema・HTTP schema取得APIは後続実装である。
+ROS descriptors come from rclnodejs `MessageIntrospector`; unknown primitives are not guessed. Schema IDs are SHA-256 of JSON containing `codec`, `descriptor`, and `allowNonFinite`, recursively normalized by ascending key order. Array order is preserved. Even the same ROS type gets a different hash when command non-finite-value policy differs. Distributable JSON Schemas and HTTP schema retrieval remain future work.
 
-### Commandとqueue
+### Commands and queues
 
-[CommandGuard](../packages/bridge/src/session/README.md)はsession、handle、leaseを再利用しないIDで管理し、Topicごとのlease時間をhandle生成時に固定する。`seq`はcanonical uint64 decimal stringとし、上限到達時は新しいhandleを取得する。受信時にseqを消費し、publish時も順序を検証する。ticketは成功・失敗を問わず1回だけ使用でき、ROS APIの例外でもseqを巻き戻さない。同じsessionの別handleで再armした場合も、同一ROS出力の旧leaseを失効させる。
+[CommandGuard](../packages/bridge/src/session/README.md) manages sessions, handles, and leases with non-reused IDs, fixing each Topic lease duration at handle creation. `seq` is a canonical uint64 decimal string; reaching its maximum requires a new handle. Receipt consumes seq, and publication rechecks ordering. Tickets are single-use on success or failure; ROS API exceptions do not roll back seq. Arming another handle in the same session also invalidates the previous lease.
 
-認可hookの後にも所有状態を再取得し、撤回済みstateを使わない。clockは副作用のない単調clockを注入する。最終検証からROS publishまでは同期処理とし、`await`を挟まない。[session router](../packages/bridge/src/router/README.md)は型・値・rate・方向・所有権を検証し、ready後の新規sampleだけを配信する。待機中のtelemetryも送信直前に再認可する。routerの致命的終了は、ROS callback起点でもtransportへ通知してpeer枠を解放する。
+Ownership is re-read after authorization hooks. The clock is a side-effect-free monotonic clock injected from outside. Final validation and ROS publication are synchronous with no intervening `await`. The [session router](../packages/bridge/src/router/README.md) validates types, values, rates, directions, and ownership, forwarding only newly received samples after ready. Queued telemetry is reauthorized immediately before transmission. Fatal router closure notifies transport and releases the peer slot even when initiated by a ROS callback.
 
-`DeliveryQueue`は1 peerのencode済みenvelope bytesをcopyして保存する。latestは旧値を捨て、peer上限に新値も収まらなければ新値を捨ててdropを計測する。reliableの上限超過は待機値を解放してstreamを停止する。設定の`fifo`はqueue APIの`reliable`に対応する。routerはcontrolを優先し、transportは`bufferedAmount`と合意message上限を確認して送信する。process全体budgetとnative callback滞留の制御・長時間評価は残る。
+`DeliveryQueue` copies encoded envelope bytes per peer. Latest replaces old values, discarding new ones too if they exceed the remaining peer budget. Reliable overflow releases queued values and stops the stream. Configuration `fifo` maps to queue API `reliable`. The router prioritizes control and the transport checks bufferedAmount and negotiated message limits. Process-wide budgets, native backlog control, and long-running assessment remain incomplete.
 
-### Transport採用の制約
+### Transport adoption constraints
 
-`werift`本体がMITでも推移依存の適合確認が必要である。`werift 0.24.4`は`mediabunny`へ依存し、対象版のlicenseはMPL-2.0であるため現行の依存方針では導入しない。[weriftの依存定義](https://github.com/shinyoshiaki/werift-webrtc/blob/v0.24.4/packages/webrtc/package.json)、[mediabunny 1.45.2の配布metadata](https://registry.npmjs.org/mediabunny/1.45.2)
+Even though werift itself is MIT, transitive dependencies must comply. `werift 0.24.4` depends on `mediabunny`, whose version 1.45.2 is MPL-2.0 and is therefore excluded. [werift dependency declaration](https://github.com/shinyoshiaki/werift-webrtc/blob/v0.24.4/packages/webrtc/package.json), [mediabunny 1.45.2 metadata](https://registry.npmjs.org/mediabunny/1.45.2)
 
-PoCでは[werift core](../vendor/werift-datachannel/README.md)の通常entryから到達するファイルだけを、上流artifactのintegrity・個別hash・import閉包の検査付きで明示生成する。MPL依存を使うnonstandard録画機能とRTP extraは導入しない。DCEP OPENがpartial reliability指定でunordered bitを上書きする上流箇所へ、前後hash付きの2行修正を適用する。通常の3channel契約と16KiB往復を回帰試験する。
+The PoC explicitly generates only files reachable from the normal [werift core](../vendor/werift-datachannel/README.md) entrypoint, checking upstream artifact integrity, individual hashes, and import closure. It excludes MPL-dependent nonstandard recording and RTP extras. A two-line patch, guarded by before/after hashes, fixes upstream DCEP OPEN overwriting the unordered bit when partial reliability is selected. Regression tests cover the three-channel contract and 16 KiB round trips.
 
-認証は実行時注入する単一Bearerと、subscribe公開名・publish scopeの固定allowlistである。未指定権限は拒否し、認証前にはPeerConnectionを作らない。TLSを必須とし、SDP/request/peer数/交渉時間を制限する。[CLIの設定](../packages/bridge/src/app/README.md)と[接続試験](../tests/connection/README.md)に再現手順を記載する。
+Authentication uses one runtime-injected Bearer credential and fixed subscription-name/publication-scope allowlists. Unspecified permissions are denied, and PeerConnections are not created before authentication. TLS is required; SDP size, request size, peer counts, and negotiation time are bounded. See [CLI settings](../packages/bridge/src/app/README.md) and [connection tests](../tests/connection/README.md) for reproduction instructions.
 
-ブラウザSDK、JWT/多ユーザーのidentity管理、外向きrendezvous、TURN TCP/TLS・UDP遮断、QoS不一致診断、controller側watchdogは未完了である。性能harnessはdirect/reliable/StringのRTT・throughput・CPU/RSS・cleanupを測るが、event-loop遅延、native callback滞留、queue byte数、slow peer、network impairmentは未計測であり、接続PoCの成功で代替しない。
+Browser SDKs, JWT/multi-user identity management, outbound rendezvous, TURN TCP/TLS and UDP-blocked operation, QoS mismatch diagnostics, and controller watchdogs remain incomplete. The performance harness measures direct/reliable/String RTT, throughput, CPU/RSS, and cleanup. Event-loop latency, native callback backlogs, queue bytes, slow peers, and network impairment are unmeasured; a successful connection PoC does not substitute for these checks.
 
-任意設定が参照するROS interface packageはdeployment側packageが依存宣言し、そのoverlayをsourceしてrclnodejs bindingを生成する。試験用の外部`bridge_test_interfaces`でnested、bounded string、固定配列、int64/uint64、uint8列を実Chromium・install済みGateway・独立rclpy間で双方向検証する。core packageへこのtest依存を追加しない。install layout、秘密情報をlaunch argumentへ載せない起動契約、検証範囲は[ROS package化](ros-packaging.md)に記載する。
+Deployment packages declare dependencies for interfaces referenced by custom configurations, source the overlay, and generate rclnodejs bindings. Tests use external `bridge_test_interfaces` to verify nested messages, bounded strings, fixed arrays, int64/uint64, and uint8 sequences bidirectionally between real Chromium, an installed Gateway, and an independent rclpy node. The core package does not depend on this test interface. [ROS packaging](ros-packaging.md) describes install layout, keeping secrets out of launch arguments, and verification scope.
 
-PRの作成・再オープン・ブランチ更新では、[CI](../.github/workflows/ci.yml)が単体・結合・カバレッジ校正・transport試験、およびHumble/Jazzyのarm64/amd64、Fast DDS/Cyclone DDSの1軸差分で実ROS・Chromium・offline colcon package試験を実行する。[performance workflow](../.github/workflows/performance.yml)はPRで短時間測定、週次と手動で1時間soakを実行する。追加browser、障害注入、controller、release試験は[TESTS.md](../TESTS.md#8-ciと対応matrix)の後続計画とする。
+PR creation, reopening, and branch updates trigger [CI](../.github/workflows/ci.yml): unit/integration tests, coverage calibration, transport tests, and real ROS/Chromium/offline colcon package tests across Humble/Jazzy, arm64/amd64, and Fast DDS/Cyclone DDS with one-axis variations. The [performance workflow](../.github/workflows/performance.yml) runs short PR measurements and weekly/manual one-hour soaks. Additional browsers, fault injection, controller tests, and release testing remain later plans in [TESTS.md](../TESTS.md#8-ci-and-support-matrix).

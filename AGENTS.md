@@ -1,71 +1,71 @@
 # AGENTS Guide
 
-このリポジトリで作業するエージェント向けの補足ルールです。共通の開発規約の正本は [`CONTRIBUTING.md`](CONTRIBUTING.md) とし、最初にそちらを確認してください。
+This repository provides the following additional guidance for agents. Read [CONTRIBUTING.md](CONTRIBUTING.md) first; it is the canonical source of shared development rules.
 
 ## First Read Checklist
 
-- 作業開始時に `CONTRIBUTING.md`、[`README.md`](README.md)、変更対象に関係する文書を確認する。
-- 設計の正本は [`docs/design.md`](docs/design.md)。実装・接続検証の範囲は§14を確認し、提案APIや未検証の環境を対応済みとして扱わない。
-- テストに関わる作業では [`TESTS.md`](TESTS.md) を読み、対象の受け入れ条件と必要なテスト層を実装前に決める。
-- 新しいトップレベル文書やディレクトリを増やす前に、既存の配置先で表現できないかを確認する。
-- 日本語の用語集が追加された場合は、その表記を優先する。
+- Before starting work, read `CONTRIBUTING.md`, [README.md](README.md), and documentation relevant to the change.
+- [docs/design.md](docs/design.md) is the design source of truth. Check section 14 for implemented and connection-tested scope; do not present proposed APIs or untested environments as supported.
+- For test-related work, read [TESTS.md](TESTS.md) and decide the acceptance criteria and required test layers before implementation.
+- Check whether an existing location can represent the content before adding top-level documents or directories.
+- If a terminology glossary is added, use its preferred English terms.
 
 ## Sub-Agent Operating Model
 
-計画・開発・QAの3チーム構成を標準とする。小さく独立性のない作業のためだけにエージェントを増やさない。
+Use planning, development, and QA teams by default. Do not add agents solely for small tasks that cannot proceed independently.
 
-- **Team 1: 計画・調整** — 大きい、曖昧、または複数領域にまたがる作業はここから開始する。スコープ、依存関係、担当ファイル、完了条件を定め、成果物を統合する。親エージェントが担当できる。
-- **Team 2: 開発** — 明確な担当範囲で実装・文書更新を行う。同じファイルの競合編集を避ける。
-- **Team 3: QA** — 要件との整合、重要な挙動、境界条件、回帰リスクを独立に確認する。実装後に確認し、未解決リスク・未検証範囲・利用者への影響を報告する。
-- 引き継ぎは小さく区切り、目的、入力、編集可能なファイル、期待する成果、検証条件を示す。
-- 障害や制約が見つかったら、現在の影響と次の対応を明示する。
+- **Team 1: Planning and coordination** — Start here for large, ambiguous, or cross-cutting tasks. Define scope, dependencies, file ownership, and completion criteria, and integrate deliverables. The parent agent may serve this role.
+- **Team 2: Development** — Implement code and documentation within explicit ownership boundaries. Avoid concurrent edits to the same files; coordinate serial changes when needed.
+- **Team 3: QA** — Independently review requirements, important behavior, edge cases, and regression risks. Validate after implementation and report unresolved risks, unverified areas, and user-facing impact.
+- Keep handoffs bounded and specify the purpose, inputs, editable files, expected deliverables, and validation criteria.
+- Surface blockers and limitations with their current impact and recommended next action.
 
-agent設定を追加・変更する場合は本節と実際の設定を同期する。存在しない設定やrole、同時実行数を前提にしない。
+Keep this section consistent with actual agent configuration when adding or changing it. Do not assume unavailable settings, roles, or concurrency limits.
 
 ## Working Principles
 
-- 非自明な変更は、編集前に目的、依存関係、主なリスク、更新対象、検証方法を整理する。
-- 独立した調査・生成・検証は並列化できる。同じファイルの変更は担当者を決めて直列化する。
-- 想定外のローカル変更や他者の変更を上書きしない。
-- 利用者・開発者に必要な判断理由、前提、制約は、関連する公開文書やコードコメントに残す。移植経緯、調査ログ、作業上の覚書は `.runtime/` に保存する。
-- rate、queue容量、payload上限、timeout、lease等の調整値は設定ファイルまたは環境変数から変更できるようにし、既定値と上書き方法を文書化する。
-- 症状を隠すfallbackを追加しない。根本原因と共通ルールを優先し、診断用の一時回避は用途と撤去条件を記録する。
+- Before nontrivial changes, identify purpose, dependencies, key risks, affected files, and validation methods.
+- Independent investigation, generation, and validation may run in parallel. Assign ownership and serialize changes to the same file.
+- Do not overwrite unexpected local changes or other contributors' work.
+- Record rationale, assumptions, and constraints needed by users and developers in related public documentation or code comments. Keep migration history, investigation logs, and working notes in `.runtime/`.
+- Make tunable rates, queue capacities, payload limits, timeouts, and leases configurable through files or environment variables; document defaults and overrides.
+- Do not add fallbacks that hide symptoms. Prioritize root causes and shared rules. Record the purpose and removal criteria for temporary diagnostic workarounds.
 
 ## Project Boundaries
 
-- 公開Topic、ROS型、方向、QoS、配送方式は設定駆動とし、Topicごとの個別handlerを増やさない。
-- `RosAdapter`、schema/codec、session/認可、WebRTC transport、signalingの責務を分離する。mockと実ROSのinterfaceを揃える。
-- DDS QoSとDataChannelの配送特性を混同しない。ROS publish成功をcontrollerの処理完了として扱わない。
-- protocol、型変換、認可、queue、再接続の契約変更は、関連schema、SDK、例、文書も同じ作業で更新する。未作成の成果物は実装時に整備する。
-- 古いcommandを再接続時に再送しない。期限・epoch・所有権の検証範囲と、controller側の責務を明記する。
-- 性能、browser互換性、ROS distro対応は実際の検証結果に基づいて記載する。
+- Configure public Topics, ROS types, directions, QoS, and delivery modes declaratively; do not add individual handlers per Topic.
+- Separate `RosAdapter`, schemas/codecs, sessions/authorization, WebRTC transport, and signaling. Keep mock and real ROS interfaces aligned.
+- Do not conflate DDS QoS with DataChannel delivery characteristics or treat ROS publication success as controller completion.
+- Update related schemas, SDKs, examples, and documentation together when changing protocols, conversions, authorization, queues, or reconnect contracts. Create missing artifacts during implementation.
+- Never replay old commands after reconnect. Document the scope of deadline, epoch, and ownership validation and the controller's responsibilities.
+- Base performance, browser compatibility, and ROS distribution support claims on actual validation results.
 
 ## Documentation And Tooling
 
-- 仕様や構想では「現状」「目標」「未確定事項」を区別する。
-- PRの本文は、特に指定がなければ日本語で記載する。
-- 複数行のPR本文やコメントをshell引数へ直接展開しない。構造化されたtool引数、または本文ファイルと `--body-file` を使い、backtickや `$()` の誤実行を防ぐ。
-- SVGを作成・変更した場合はレンダリングして、文字のはみ出し、重なり、線と文字の読みやすさを確認する。
-- 実装前の文書作業では、リンク、例の構文、設計間の整合を確認する。存在しないbuild/testコマンドを実行したと報告しない。
+- Distinguish the current state, goals, and open questions in specifications and proposals.
+- Write maintained documentation, code comments, new PR bodies, and review replies in English unless explicitly instructed otherwise. Historical PR text and commit messages do not need translation.
+- Do not interpolate multiline PR bodies or comments into shell arguments. Use structured tool arguments or a body file with `--body-file` to prevent accidental execution of backticks or `$()`.
+- Render new or changed SVGs and check text overflow, overlap, and legibility of lines and text.
+- For documentation work before implementation, verify links, example syntax, and consistency across designs. Do not report nonexistent build/test commands as executed.
 
 ## Security And Dependencies
 
-- secretはダミー値でもcommitせず、sub-agentへのpromptにも含めない。設定例には環境変数名や参照方法を使う。
-- 外部入力、ネットワーク値、設定、環境変数は境界で検証する。型、方向、session所有権、サイズを確認する。
-- 新しい依存は `CONTRIBUTING.md` のライセンス方針に従う。採用理由、推移依存、配布への影響を確認する。
-- セキュリティ方針は [`SECURITY.md`](SECURITY.md) を参照する。
+- Never commit secrets, including dummy values, or include them in sub-agent prompts. Configuration examples should use environment variable names or explain how to reference values.
+- Validate external inputs, network values, configuration, and environment variables at boundaries. Check types, directions, session ownership, and sizes.
+- Follow the license policy in `CONTRIBUTING.md` for new dependencies. Check rationale, transitive dependencies, and distribution impact.
+- See [SECURITY.md](SECURITY.md) for the security policy.
 
 ## Completion Checklist
 
-- 共通規約と担当範囲を守り、関連文書・例・仕様を同期している。
-- 変更に応じた検証が完了し、未実施項目とその理由が分かる。
-- `TESTS.md` に従って必須試験の失敗・skip・未実施を区別し、カバレッジだけで実ROSやブラウザの動作確認を代替していない。
-- 将来の判断に必要な根拠と制約が、公開仕様と非公開の作業メモを区別して適切な場所に残っている。
-- 不要な一時ファイルやsecretを成果物へ含めていない。
+- Follow shared rules and file ownership, and keep related documentation, examples, and specifications synchronized.
+- Complete validation appropriate to the change and identify unperformed checks and their reasons.
+- Follow `TESTS.md`; distinguish failures, skips, and unperformed required checks. Do not substitute coverage for real ROS or browser validation.
+- Keep evidence and limitations needed for future decisions in the appropriate public specifications or private working notes.
+- Do not include unnecessary temporary files or secrets in deliverables.
 
 ## Operational Know-How
 
-- 一時的な調査結果や出力は `.runtime/` に置き、version controlから除外する。
-- 参照リポジトリを調べる場合は参照先とcommitを `.runtime/` に記録し、手元の古いcheckoutとremoteの内容を混同しない。
-- 回り道や再発しうる問題の原因・調査過程は `.runtime/` に保存する。公開開発手順として必要な内容だけを関連文書へ反映する。
-- 公開文書から `.runtime/` 内の個別メモへリンクしない。Git cloneだけで仕様・規約を理解できる状態を保つ。
+- Store temporary investigation results and output in `.runtime/`, excluded from version control.
+- Record reference repositories and commits in `.runtime/` when investigating them. Distinguish local checkouts from current remote contents.
+- Record detours, recurring causes, and investigations in `.runtime/`. Move only information needed as public development guidance into related documentation.
+- Do not link public documentation to individual `.runtime/` notes. A Git clone must contain everything needed to understand the specifications and rules.

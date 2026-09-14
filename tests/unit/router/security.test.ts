@@ -4,7 +4,7 @@ import { SessionRouter } from '../../../packages/bridge/src/router/index.js';
 import type { RouterOptions } from '../../../packages/bridge/src/router/types.js';
 import { advertise, bytes, fixture } from './fixtures.js';
 
-test('SEC-01/PRO-01: raw UTF-8/JSON/version/channel/field境界を拒否', () => {
+test('SEC-01/PRO-01: reject invalid raw UTF-8, JSON, version, channel, and field boundaries', () => {
   const f = fixture();
   for (const raw of [new Uint8Array(), new Uint8Array(1025), Uint8Array.of(255), Buffer.from('{'), Buffer.from('null'), Buffer.from('[]'), Buffer.from('1'), bytes({ v: 2, op: 'hello' }), bytes({ op: 1 }), bytes({ op: 'hello', extra: 1 }), bytes({ op: 'hello', id: 1 })]) {
     f.router.receive('ros.control.v1', raw);
@@ -16,7 +16,7 @@ test('SEC-01/PRO-01: raw UTF-8/JSON/version/channel/field境界を拒否', () =>
   f.router.close();
 });
 
-test('AUTH-01/PRO-01: default deny、方向、設定外Topic、hello前操作を拒否', () => {
+test('AUTH-01/PRO-01: enforce default deny, direction, configured Topics, and hello-before-operation', () => {
   const denied = fixture(options => ({ ...options, authorize: undefined }));
   denied.control({ op: 'hello' });
   assert.deepEqual(denied.last().catalog, []);
@@ -38,7 +38,7 @@ test('AUTH-01/PRO-01: default deny、方向、設定外Topic、hello前操作を
   f.router.close();
 });
 
-test('TYPE-01/PRO-01/CMD-02: publishの不正channel/epoch/op/型/leaseを拒否', () => {
+test('TYPE-01/PRO-01/CMD-02: reject publication with invalid channel, epoch, operation, type, or lease', () => {
   const f = fixture();
   const handle = advertise(f);
   const request = { op: 'publish', handle, epoch: 'epoch-1', seq: '0', data: { data: 'ok' } };
@@ -54,7 +54,7 @@ test('TYPE-01/PRO-01/CMD-02: publishの不正channel/epoch/op/型/leaseを拒否
   f.router.close();
 });
 
-test('AUTH-02: ACL変更とpolicy内closeをpublish直前に反映', () => {
+test('AUTH-02: apply ACL changes and closure inside policy callbacks immediately before publication', () => {
   const f = fixture();
   const handle = advertise(f);
   let calls = 0;
@@ -63,7 +63,7 @@ test('AUTH-02: ACL変更とpolicy内closeをpublish直前に反映', () => {
   assert.equal(f.last().op, 'error');
   assert.equal(f.published.length, 0);
   f.router.close();
-  // 再認可callbackでcloseした場合も古いpublisher状態を使わない。
+  // Do not reuse old publisher state when reauthorization closes the router.
   const closed = fixture();
   const secondHandle = advertise(closed);
   closed.state.authorizeHook = () => closed.router.close();
@@ -72,7 +72,7 @@ test('AUTH-02: ACL変更とpolicy内closeをpublish直前に反映', () => {
   assert.equal(closed.guard.stats().sessions, 0);
 });
 
-test('CFG-01/SEC-01: routerの上限/clock/bindingを初期化時に検証', () => {
+test('CFG-01/SEC-01: validate router limits, clocks, and bindings at initialization', () => {
   const base = fixture();
   const options = base.options;
   for (const limits of [{ ...options.limits, maxHandles: 0 }, { ...options.limits, maxRequests: NaN }]) {
@@ -91,7 +91,7 @@ test('CFG-01/SEC-01: routerの上限/clock/bindingを初期化時に検証', () 
   base.router.close();
 });
 
-test('FLOW-02: control rateとregistry/cache上限を副作用前に適用', () => {
+test('FLOW-02: enforce control rate and registry/cache limits before side effects', () => {
   for (const limit of ['maxHandles', 'maxRequests', 'maxControlRateHz'] as const) {
     const f = fixture(options => ({ ...options, limits: { ...options.limits, [limit]: 1 } }));
     f.control({ op: 'hello' });
@@ -101,7 +101,7 @@ test('FLOW-02: control rateとregistry/cache上限を副作用前に適用', () 
     assert.ok((f.listeners.get('/out')?.size ?? 0) <= 1);
     f.router.close();
   }
-  // cacheはrequest本文と最大応答の余白がないと新規副作用を始めない。
+  // Do not begin new side effects without cache space for the request and maximum response.
   const small = fixture(options => ({ ...options, config: { ...options.config, limits: { ...options.config.limits, maxPeerQueueBytes: 1024 } } }));
   small.control({ op: 'hello' });
   small.control({ op: 'subscribe', id: 's1', topic: '/out' });

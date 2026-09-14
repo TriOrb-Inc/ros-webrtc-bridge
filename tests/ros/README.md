@@ -1,8 +1,8 @@
-# 独立ROS試験
+# Independent ROS tests
 
-`Dockerfile`でROS distro・RMWごとの独立imageを作り、`native.test.ts`が別processのrclpy対向nodeと通信します。StringのUTF-8 echo、完全なTwist、外部`BridgeFrame`の全field、native remap、正常teardownを確認します。bridgeのcodecをPythonへ共有しません。
+`Dockerfile` builds an independent image for each ROS distro/RMW, and `native.test.ts` communicates with an rclpy peer in another process. It checks UTF-8 String echo, complete Twist messages, every field of an external `BridgeFrame`, native remapping, and normal teardown. The Python peer does not share the bridge codec.
 
-Stringの送受信には`source→target`と`target→other`の2規則を指定し、設定の所有名とnative entityの実Topic名が一度解決した`target`で一致することを検証します。publisherとsubscriptionの両方で、誤って`other`へ再remapすると対向nodeと通信できない構成です。
+String transmission and reception configure both `source→target` and `target→other` rules. The test verifies that configuration ownership names and actual native Topic names agree on the once-resolved `target`. For both publishers and subscriptions, an erroneous second remap to `other` prevents communication with the peer.
 
 ```bash
 docker build -f tests/ros/Dockerfile --build-arg ROS_IMAGE=ros:humble-ros-base-jammy --build-arg BRIDGE_RMW_IMPLEMENTATION=rmw_fastrtps_cpp -t ros-webrtc-bridge-test:humble-fastrtps .
@@ -11,12 +11,12 @@ docker run --rm --network none -e ROS_LOCALHOST_ONLY=1 -e ROS_DOMAIN_ID=91 ros-w
 docker run --rm --network none -e ROS_LOCALHOST_ONLY=1 -e ROS_DOMAIN_ID=92 ros-webrtc-bridge-test:jazzy-fastrtps bash -lc 'source /opt/ros/jazzy/setup.bash && source /bridge/test_interfaces/install/setup.bash && node --test /bridge/.runtime/build/tests/ros/native.test.js'
 ```
 
-この実行例は外部network接続を持たないcontainer内で2processを動かすため、hostや他jobのROS graphへ混入しません。同じnetwork内で複数jobを起動する場合は、job固有networkと重複しないdomain番号を割り当てます。`ROS_LOCALHOST_ONLY`は両distroで共通利用できますが、Jazzyでは非推奨の通知が出ます。
+These examples run two processes in containers without external network access, keeping them out of the host and other jobs' ROS graphs. When running jobs on the same network, assign a dedicated network and distinct domain per job. `ROS_LOCALHOST_ONLY` works on both distros, though Jazzy emits a deprecation notice.
 
-Node 22.22.2とlockfileを使い、rclnodejsのinstall・型生成をROS環境内で実行します。対応するprebuilt native binaryがある場合はそれを利用し、ソースからnative addonをcompileしたという結果には数えません。
+Use Node 22.22.2 and the lockfile, installing rclnodejs and generating types in the ROS environment. A compatible prebuilt native binary is used when available; that result does not count as compiling the native addon from source.
 
-Cyclone DDSは`BRIDGE_RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`のRMW差分試験imageだけへ導入するtest-onlyの外部実装です。core ROS packageや配布成果物の依存には含めず、この試験image自体も公開配布しません。
+Cyclone DDS is an external test-only implementation installed only in RMW comparison images with `BRIDGE_RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`. It is not a core ROS package or release-artifact dependency, and the test image itself is not publicly distributed.
 
-対向nodeは`ROS_TEST_NAMESPACE`（既定`/bridge_test`）配下のString `in`を`out`へechoし、Twist `cmd_vel`をString `observed`へJSON形式で通知します。さらにcore外の`bridge_test_interfaces` overlayからBridgeFrame `custom_in`を`custom_out`へechoし、64bit/bytesを含む全fieldを確認します。`ROS_TEST_TIMEOUT_SECONDS`は既定120秒、最大3600秒です。native試験は対向node40秒、試験全体45秒、各応答15秒、終了待機2秒のdeadlineを持ちます。対向nodeは4秒ごとに状態を出し、試験はdiscoveryを固定sleepで成功扱いしません。
+Under `ROS_TEST_NAMESPACE` (default `/bridge_test`), the peer echoes String `in` to `out` and reports Twist `cmd_vel` as JSON on String `observed`. It also echoes BridgeFrame `custom_in` to `custom_out` using the external `bridge_test_interfaces` overlay, checking every field including 64-bit integers and bytes. `ROS_TEST_TIMEOUT_SECONDS` defaults to 120 seconds, with a maximum of 3600. Native tests set deadlines of 40 seconds for the peer, 45 seconds overall, 15 seconds per response, and two seconds for shutdown. The peer prints status every four seconds; discovery is not declared successful merely after a fixed sleep.
 
-本試験の範囲はROS adapterと独立node間です。WebRTC・browser・TURN、QoS不一致、全ROS型、controllerのwatchdog、通信障害、CPU/RSS/latencyの性能評価は別の試験を必要とします。試験失敗・例外でもadapter contextと対向processを解放します。
+This test covers the ROS adapter and independent node. WebRTC, browsers, TURN, QoS mismatches, all ROS types, controller watchdogs, network faults, and CPU/RSS/latency performance require separate tests. The adapter context and peer process are released even on failure or exception.

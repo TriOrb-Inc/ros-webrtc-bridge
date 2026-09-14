@@ -93,7 +93,7 @@ class Event {
             configurable: true,
             writable: true,
             value: () => {
-                // complete() 後の再呼び出しを許容し、close 経路での二重クリーンアップを安全にする
+                // Allow repeated calls after complete() so duplicate cleanup during close is safe.
                 if (this.ended) {
                     return;
                 }

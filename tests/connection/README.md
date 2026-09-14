@@ -1,6 +1,6 @@
-# ブラウザから実ROSまでの接続試験
+# Browser-to-ROS connection tests
 
-`npm run test:connection`はHumbleとJazzyを順に検証します。Dockerを直接実行できるLinux host、Node.js 22、npm依存、Playwright Chromium、OpenSSLが必要です。Docker DesktopのVMを跨ぐ接続は未検証です。hostから専用Docker networkのcontainer IPへ到達できる構成を使います。
+`npm run test:connection` checks Humble and Jazzy sequentially. It requires a Linux host that can run Docker directly, Node.js 22, npm dependencies, Playwright Chromium, and OpenSSL. Connections across a Docker Desktop VM have not been verified. The host must be able to reach container IP addresses on the dedicated Docker network.
 
 ```bash
 npm ci --ignore-scripts
@@ -9,36 +9,36 @@ npx playwright-core install chromium
 npm run test:connection
 ```
 
-build時はimage・npm artifact取得の外向き接続を使います。試験時はjob固有の`--internal` networkにGateway、独立rclpy node、coturnを置きます。DDSはdomain 73と`/bridge_test` namespaceを使用し、異なるjobは別networkで隔離します。host networkやhostのROS graphを使いません。HTTPSはcontainer IPの7443へ接続し、host portを公開しません。
+Building uses outbound connections to obtain images and npm artifacts. Tests run the Gateway, an independent rclpy node, and coturn on a job-specific `--internal` network. DDS uses domain 73 and the `/bridge_test` namespace; separate networks isolate jobs. The tests do not use host networking or the host ROS graph. HTTPS connects to port 7443 on the container IP, without publishing a host port.
 
-Gatewayの一時Bearer、TLS key/cert、TURN credentialを毎回生成します。所有者だけが読める一時directoryをread-only mountし、containerはrootで読みます。試験後は秘密ファイルを削除します。試験用自己署名証明書はPlaywrightの専用contextでのみ許容します。これは公開運用のTLS・credential管理手順ではありません。
+Each run generates temporary Gateway Bearer credentials, TLS keys/certificates, and TURN credentials. A temporary directory readable only by its owner is mounted read-only and read by the container as root. Secret files are deleted after testing. Self-signed test certificates are accepted only in the dedicated Playwright context. This is not a procedure for managing TLS or credentials in a public deployment.
 
-| 設定 | 既定値・意味 |
+| Setting | Default and meaning |
 | --- | --- |
-| `CONNECTION_DISTROS` | `humble,jazzy`。単独調査では`humble`または`jazzy` |
-| `CONNECTION_TURN` | `0`だけがTURN省略。既定は両経路を実行 |
-| `CONNECTION_RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp`（既定）または`rmw_cyclonedds_cpp` |
-| `CONNECTION_EXPECTED_ARCH` | CIで`arm64`または`x64`を実測値と照合 |
-| `CONNECTION_PLATFORM` | 異なるCPUをローカルemulationする場合の`linux/amd64`または`linux/arm64` |
-| `CONNECTION_BUILD_TIMEOUT_MS` | Docker image buildの期限。既定1,200,000ms（20分）、60,000〜1,800,000msで上書き可能 |
-| Gateway設定 | [connection-custom.yaml](../ros/connection-custom.yaml)。標準型、外部独自型、QoS、250ms leaseを固定 |
-| build/pull | buildは上記設定、pullは180秒で打切り |
-| readiness | 全体30秒、個々のHTTPS要求1秒 |
-| browser helper | setupとscenario共通で各経路120秒、引数`timeoutMs`で1〜600秒へ変更可能。終了処理はclose・kill・終了確認に各3秒 |
-| ROS peer | 本harnessでは360秒、環境変数で対向nodeに注入 |
+| `CONNECTION_DISTROS` | `humble,jazzy`; select `humble` or `jazzy` for an individual investigation |
+| `CONNECTION_TURN` | Only `0` skips TURN; both paths run by default |
+| `CONNECTION_RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` (default) or `rmw_cyclonedds_cpp` |
+| `CONNECTION_EXPECTED_ARCH` | Compare measured architecture with `arm64` or `x64` in CI |
+| `CONNECTION_PLATFORM` | `linux/amd64` or `linux/arm64` for local emulation of a different CPU |
+| `CONNECTION_BUILD_TIMEOUT_MS` | Docker image build deadline: default 1,200,000 ms (20 minutes), configurable from 60,000 to 1,800,000 ms |
+| Gateway configuration | [connection-custom.yaml](../ros/connection-custom.yaml) pins standard types, an external custom type, QoS, and a 250 ms lease |
+| Build/pull | Build uses the setting above; pull is limited to 180 seconds |
+| Readiness | 30 seconds overall; 1 second per HTTPS request |
+| Browser helper | 120 seconds per path shared by setup and scenario; `timeoutMs` permits 1–600 seconds. Cleanup allows 3 seconds each for close, kill, and exit confirmation |
+| ROS peer | 360 seconds in this harness, injected into the peer through an environment variable |
 
-4秒ごとに工程を表示します。GatewayはDocker image内でcolcon buildしたinstall overlayから`ros2 run ros_webrtc_bridge ros_webrtc_bridge`で起動し、source treeのCLIへfallbackしません。対向rclpyとinstall済みrclnodejs addonの双方で実RMW identifierを取得し、要求値との一致を確認します。Nodeの`process.arch`とDocker image architectureもmatrix期待値へ対応付けてassertします。`tests/browser/connection.ts`は実Chromiumを起動し、ブラウザ内のraw clientが3本のDataChannelを作ります。製品SDKを使った試験ではありません。`tests/ros/peer.py`はbridgeのcodecを共有しない独立対向nodeです。
+Progress is reported every four seconds. The Gateway starts with `ros2 run ros_webrtc_bridge ros_webrtc_bridge` from the overlay built and installed by colcon inside the Docker image, without falling back to the source-tree CLI. Both the rclpy peer and the installed rclnodejs addon report their actual RMW identifiers, which must match the requested value. Node's `process.arch` and the Docker image architecture must match the matrix expectations. `tests/browser/connection.ts` starts real Chromium, where a raw client creates three DataChannels. This does not test a product SDK. `tests/ros/peer.py` is an independent peer that does not share the bridge codec.
 
-- Stringの固有markerをWeb→ROS→Webで照合。
-- 実行固有の値を含む完全なTwistをpublishし、独立ROS nodeの観測した全fieldを照合。受信channel・stream・epochも検証する。
-- core外の`bridge_test_interfaces/msg/BridgeFrame`をoverlayで先にbuildしてbindingを生成し、nested message、bounded string、int64/uint64、固定uint8列、固定float配列をWeb→ROS→Webで照合。
-- 期限切れlease・旧epochを拒否し、観測windowで不正commandを受信しないことを確認。拒否した値は以後の全受信でも監視し、拒否の前後に正常な対照commandを流す。
-- Browser health失敗時は、固定分類・試行回数・経過時間とGatewayの`running`、`exitCode`、`oomKilled`だけを`result.json`へ記録する。URL、credential、SDP、生logは結果へ含めない。
-- 初回と2回の再接続でepoch非再利用を確認。古いcommandを再送しない。
-- `getStats()`の選択candidate pairを確認。TURN経路ではブラウザの`relay-only`を強制し、選択local candidateが`relay`でなければ失敗。
+- Match unique String markers through Web → ROS → Web.
+- Publish a complete Twist with run-specific values and compare all fields observed by the independent ROS node. Also verify the receiving channel, stream, and epoch.
+- Build the external `bridge_test_interfaces/msg/BridgeFrame` in an overlay before generating bindings, then check nested messages, bounded strings, int64/uint64, fixed uint8 sequences, and fixed float arrays through Web → ROS → Web.
+- Reject expired leases and old epochs, and confirm that invalid commands are absent during the observation window. Continue monitoring all later messages for rejected values, with valid control commands before and after each rejection.
+- On browser health failure, record only the fixed failure classification, attempt count, elapsed time, and Gateway `running`, `exitCode`, and `oomKilled` values in `result.json`. Results exclude URLs, credentials, SDP, and raw logs.
+- Verify that epochs are not reused across the initial connection and two reconnects. Do not resend old commands.
+- Inspect the selected candidate pair with `getStats()`. The TURN path forces browser `relay-only` mode and fails unless the selected local candidate is `relay`.
 
-ローカル検証済み構成はLinux arm64、ROS Humble/Jazzy + Fast DDS、Jazzy + Cyclone DDS、Node 22.22.2、rclnodejs 2.2.0の同梱prebuilt、Playwright 1.63.0 / Chromium 153.0.8010.12、coturn 4.6.3です。Fast DDSはdirectとTURN UDP、Cyclone DDSはdirectを対象にします。amd64はnative GitHub runnerで実測し、QEMU上の成功を代用しません。native addonのsource compile、TURN TCP/TLS、UDP遮断、QoS不一致、controller watchdogはこの結果に含みません。
+Locally verified configurations are Linux arm64, ROS Humble/Jazzy with Fast DDS, Jazzy with Cyclone DDS, Node 22.22.2, the bundled rclnodejs 2.2.0 prebuilt addon, Playwright 1.63.0 / Chromium 153.0.8010.12, and coturn 4.6.3. Fast DDS covers direct and TURN UDP paths; Cyclone DDS covers direct connections. Measure amd64 on native GitHub runners rather than substituting QEMU results. These results do not cover native-addon source compilation, TURN TCP/TLS, UDP blocking, QoS mismatches, or controller watchdogs.
 
-各実行の機密を除いた結果とbuild診断はroot `.runtime/`へ保存します。最終集計は`connection-results.json`、各distroの作業directoryにimage IDと詳細結果を保存します。失敗後の再実行は別directoryへ記録します。成否を問わずcontainerとnetworkを解放し、後始末の失敗もtest失敗として報告します。
+Sanitized results and build diagnostics are stored under the root `.runtime/` directory. `connection-results.json` contains the aggregate; each distro's working directory contains its image ID and detailed results. Reruns after failure use separate directories. Containers and networks are released on both success and failure; cleanup failure is itself reported as a test failure.
 
-[PR CI](../../.github/workflows/ci.yml)ではHumble/Jazzyごとにarm64 + Fast DDS、amd64 + Fast DDS、amd64 + Cyclone DDSを別jobへ分離します。Fast DDSはdirect/TURN UDP、Cyclone DDSはdirectを実行し、続けて同じDocker imageで独立native試験とnetwork遮断package試験を行います。ChecksのJob Summaryで匿名の接続結果を、jobログでimage buildの診断を確認できます。詳細な保持範囲は[TESTS.md §8](../../TESTS.md#8-ciと対応matrix)を参照してください。
+[PR CI](../../.github/workflows/ci.yml) separates arm64 + Fast DDS, amd64 + Fast DDS, and amd64 + Cyclone DDS into individual jobs for Humble and Jazzy. Fast DDS runs direct/TURN UDP paths; Cyclone DDS runs direct paths. Each then uses the same Docker image for independent native tests and network-isolated packaging tests. Check the Job Summary for sanitized connection results and job logs for image-build diagnostics. See the CI section of [TESTS.md](../../TESTS.md) for retention details.

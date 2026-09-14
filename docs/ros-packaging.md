@@ -1,20 +1,20 @@
-# ROS package化
+# ROS packaging
 
-## 目的と現状
+## Purpose and current status
 
-このリポジトリはNode.js / TypeScriptアプリとしての直接実行に加え、ament package `ros_webrtc_bridge`としてbuild・install・起動できる。package versionは接続PoCを表す`0.0.0`であり、Debian/bloomによる公開releaseが完成したことは意味しない。
+In addition to direct Node.js/TypeScript execution, this repository supports build, installation, and startup as the ament package `ros_webrtc_bridge`. Package version `0.0.0` indicates a connection proof of concept, not a completed Debian/bloom public release.
 
-ROS packageの外装は次のfileで構成する。
+The ROS package integration consists of:
 
-- `package.xml`: package metadata、ament・Node・launch依存、動的ROS interface依存の責任境界。
-- `CMakeLists.txt`: WebRTC transportとTypeScriptのbuild、CTest、runtime・依存・設定・launchのinstall。
-- `scripts/ros_webrtc_bridge`: `ros2 run`からinstall済みES moduleを起動するwrapper。
-- `launch/bridge.launch.py`: install済みconfigとentrypointを解決するlaunch file。
-- `examples/*.yaml`: `share/ros_webrtc_bridge/examples`へinstallする設定例。
+- `package.xml`: package metadata, ament/Node/launch dependencies, and ownership of dynamic ROS interface dependencies.
+- `CMakeLists.txt`: transport and TypeScript build, CTest, and installation of the runtime, dependencies, configuration, and launch files.
+- `scripts/ros_webrtc_bridge`: wrapper that starts the installed ES module through `ros2 run`.
+- `launch/bridge.launch.py`: launch file that resolves the installed configuration and entrypoint.
+- `examples/*.yaml`: example configurations installed under `share/ros_webrtc_bridge/examples`.
 
-## buildとtest
+## Build and test
 
-Node.js 22とlockfileを使用する。rclnodejsのnative addonとmessage bindingは、対象ROS distroをsourceした環境で明示的に生成する。
+Use Node.js 22 and the lockfile. Explicitly generate the rclnodejs native addon and message bindings in an environment sourced for the target ROS distro.
 
 ```bash
 source /opt/ros/<distro>/setup.bash
@@ -25,9 +25,9 @@ colcon test --packages-select ros_webrtc_bridge
 colcon test-result --verbose
 ```
 
-colcon buildは`npm run prepare:transport`、`npm run build`の順で実行する。transport準備は選択・patch済みの同梱core 300 filesをhash・依存閉包・noticeと照合し、networkを使わずに生成する。upstream artifactのdownloadはmaintainerが明示実行する`vendor/werift-datachannel/refresh.mjs`だけに分離している。
+The colcon build runs `npm run prepare:transport` followed by `npm run build`. Transport preparation verifies 300 bundled, selected/patched core files against hashes, dependency closure, and notices, then generates artifacts without network access. Upstream artifacts are downloaded only through the maintainer-invoked `vendor/werift-datachannel/refresh.mjs`.
 
-隔離されたclean workspaceでCMakeにNode依存の準備も任せる場合は、事前にlockfileの全artifactをnpm cacheへ格納し、次を使用する。`ROS_WEBRTC_BRIDGE_RUN_NPM_INSTALL=ON`は`npm ci --ignore-scripts --offline --no-audit --no-fund`を実行し、cache不足時にnetworkへfallbackせず失敗する。
+To let CMake prepare Node dependencies in an isolated clean workspace, preload the npm cache with every lockfile artifact and use the following options. `ROS_WEBRTC_BRIDGE_RUN_NPM_INSTALL=ON` runs `npm ci --ignore-scripts --offline --no-audit --no-fund`; a cache miss fails without network fallback.
 
 ```bash
 colcon build --packages-select ros_webrtc_bridge --cmake-args \
@@ -35,11 +35,11 @@ colcon build --packages-select ros_webrtc_bridge --cmake-args \
   -DROS_WEBRTC_BRIDGE_RUN_RCLNODEJS_REBUILD=ON
 ```
 
-`ROS_WEBRTC_BRIDGE_INSTALL_NODE_MODULES`は既定`ON`で、buildに使ったrclnodejs native bindingを含む依存treeを通常fileとしてinstallする。依存内の補助scriptを`ros2 run`の公開実行名にしないため、source側の実行bitは引き継がない。release package側で同じmodule解決位置へruntime依存を供給する場合だけ`OFF`にできる。`ROS_WEBRTC_BRIDGE_RUN_NPM_TEST`は既定`ON`で、`colcon test`から既存のUnit/Contract/coverage判定とpackage静的契約を実行する。
+`ROS_WEBRTC_BRIDGE_INSTALL_NODE_MODULES` defaults to `ON` and installs the locked build-time dependency tree, including rclnodejs native bindings, as ordinary files. Source executable bits are not preserved, so dependency helper scripts do not become public `ros2 run` executables. Set it to `OFF` only when release packaging supplies runtime dependencies at the same module-resolution location. `ROS_WEBRTC_BRIDGE_RUN_NPM_TEST` defaults to `ON`, allowing `colcon test` to run existing Unit/Contract/coverage checks and the static package contract.
 
-## install layoutと起動
+## Install layout and startup
 
-主なinstall先は次のとおり。
+Main installation paths:
 
 ```text
 lib/ros_webrtc_bridge/ros_webrtc_bridge
@@ -50,7 +50,7 @@ share/ros_webrtc_bridge/examples/
 share/ros_webrtc_bridge/launch/
 ```
 
-overlayをsourceし、秘密情報と権限をprocess environmentへ注入して起動する。値をshell historyへ残さない方法はdeployment環境で用意する。
+Source the overlay and inject secrets and permissions into the process environment. Deployment tooling must supply a method that does not leave values in shell history.
 
 ```bash
 source install/setup.bash
@@ -63,7 +63,7 @@ export BRIDGE_PUBLISH_SCOPES=teleop
 ros2 run ros_webrtc_bridge ros_webrtc_bridge
 ```
 
-launchも同じ環境変数を継承する。secretをlaunch argumentへ渡さない。既定configはinstall済み`examples/bridge.yaml`、bind先はloopbackである。
+Launch inherits the same environment. Do not pass secrets as launch arguments. The default configuration is installed `examples/bridge.yaml`, and the default bind address is loopback.
 
 ```bash
 ros2 launch ros_webrtc_bridge bridge.launch.py \
@@ -71,20 +71,20 @@ ros2 launch ros_webrtc_bridge bridge.launch.py \
   host:=127.0.0.1 port:=7443 node_name:=ros_webrtc_gateway
 ```
 
-ROS remap等は従来どおりJSON string arrayの`BRIDGE_ROS_ARGS`で渡す。wrapperへ追加したcommand-line argumentをROS引数として暗黙解釈しない。
+Pass ROS remaps and other ROS arguments through `BRIDGE_ROS_ARGS`, a JSON string array. Extra command-line arguments to the wrapper are not implicitly interpreted as ROS arguments.
 
-`swagger-ui-dist`の固定CSS/JavaScriptも既定の`node_modules`同梱に含まれるため、install済みentrypointの `/docs` はsource treeやCDNに依存しない。`ROS_WEBRTC_BRIDGE_INSTALL_NODE_MODULES=OFF` の場合は、他のruntime依存と同様にこのpackageもmodule解決位置へ供給する。
+Pinned `swagger-ui-dist` CSS/JavaScript is included in the default `node_modules` installation, so `/docs` on the installed entrypoint does not depend on the source tree or a CDN. With `ROS_WEBRTC_BRIDGE_INSTALL_NODE_MODULES=OFF`, supply this package at the module-resolution location just like other runtime dependencies.
 
-## ROS interface依存
+## ROS interface dependencies
 
-Gatewayが必要とするmessage packageは`bridge.yaml`の`ros_type`で決まるため、core packageだけでは列挙できない。設定を所有するdeployment packageが、利用する`std_msgs`、`geometry_msgs`、独自interface package等を`exec_depend`として宣言する。そのoverlayをsourceした状態で`npm rebuild rclnodejs --foreground-scripts`を実行し、bindingを生成する。
+The message packages needed by the Gateway depend on `ros_type` in `bridge.yaml`; the core package cannot enumerate them. The deployment package owning the configuration declares `exec_depend` for `std_msgs`, `geometry_msgs`, custom interfaces, and other types it uses. Source that overlay and run `npm rebuild rclnodejs --foreground-scripts` to generate bindings.
 
-未導入またはbinding未生成の型は起動時の型解決で拒否する。型を部分的に公開したり、名前から型構造を推測するfallbackは行わない。同梱設定を使うpackage外装試験だけは、必要なinterface packageを`test_depend`として宣言する。
+Missing or ungenerated types are rejected during startup type resolution. There is no fallback that partially exposes types or guesses their structure from names. Only the package integration tests using bundled configurations declare the necessary interfaces as `test_depend`.
 
-## 検証と未完了範囲
+## Validation and remaining work
 
-`npm run test:packaging`はHumbleまたはJazzy環境で隔離colcon workspaceを作り、discovery、offline build、CTest、install layout、`ros2 run`、`ros2 launch`、HTTPS health、秘密値の非同梱、未知interfaceのfail-fastを確認する。CIでは接続imageを`--network none`で起動する。接続E2Eでは同じcolcon install済みentrypointを使い、実Chromiumと独立rclpyの間で標準型と外部独自型を双方向に検証する。
+`npm run test:packaging` creates an isolated colcon workspace on Humble or Jazzy and verifies discovery, offline build, CTest, install layout, `ros2 run`, `ros2 launch`, HTTPS health, absence of bundled secrets, and fail-fast handling of unknown interfaces. CI runs the connection image with `--network none`. Connection E2E tests use the same installed colcon entrypoint for bidirectional verification of standard and external custom types between real Chromium and an independent rclpy node.
 
-この試験は独立rclpy、実Chromium、direct/TURN UDP試験を置き換えない。Debian/bloom公開は当面対象外である。ROS build farmそのものへは登録せず、GitHub Actionsのclean source・network遮断containerをbuild farm相当の再現試験とする。`node_modules`同梱はdistro・architecture固有のPoC方式であり、将来公開releaseを行う場合はruntime依存とlicense通知の作成方法を別途固定する。
+These tests do not replace independent rclpy, real Chromium, or direct/TURN UDP tests. Debian/bloom publication is currently out of scope. The package is not registered with the ROS build farm; clean-source CI containers without network access provide build-farm-like reproducibility checks. Bundling `node_modules` is a distro/architecture-specific PoC approach. A future public release must separately fix how runtime dependencies and license notices are produced.
 
-transport自体のmaterializeは同梱local inputだけでoffline化済みである。一方、clean sourceからのNode依存導入には事前構築したnpm cacheが必要であり、ROS build farmへ依存artifactを供給する方式は未確定である。package外装smokeはroot/vendorの`node_modules`と`.runtime`、colconの`build` / `install` / `log`を除いたsourceを作り、CMake optionでoffline npm ci、rclnodejs rebuild、build/test/install/runを再構成する。事前構築したROS test imageを`docker run --network none`で起動してnetwork非依存を確認できる。
+Transport materialization already uses only bundled local inputs and works offline. Installing Node dependencies from clean source still requires a prepopulated npm cache; supplying dependency artifacts to the ROS build farm remains unresolved. The packaging smoke test copies source excluding root/vendor `node_modules` and `.runtime`, and colcon `build`/`install`/`log`, then reconstructs offline npm installation, rclnodejs rebuild, build/test/install/run using CMake options. A prebuilt ROS test image can run with `docker run --network none` to check network independence.

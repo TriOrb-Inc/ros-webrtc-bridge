@@ -6,7 +6,7 @@ import { parse } from 'yaml';
 import { serveSignalingDocs } from '../../../packages/bridge/src/signaling/docs.js';
 import { createSignalingHandler } from '../../../packages/bridge/src/signaling/handler.js';
 
-test('HTTP文書は同origin assetと一致するJSON/YAMLを公開し、offer認証を維持する', async () => {
+test('HTTP documentation serves same-origin assets and matching JSON/YAML while preserving offer authentication', async () => {
   const credential = randomBytes(32).toString('hex');
   const server = createServer(createSignalingHandler({ credential, maxBodyBytes: 1024, requestTimeoutMs: 100,
     maxPending: 1, accept: async () => assert.fail('Documentation must not negotiate a peer') }));
@@ -30,7 +30,7 @@ test('HTTP文書は同origin assetと一致するJSON/YAMLを公開し、offer�
     const yamlResponse = await fetch(`${base}/openapi.yaml`);
     assert.equal(yamlResponse.headers.get('content-type'), 'application/yaml');
     assert.deepEqual(parse(await yamlResponse.text()), spec);
-    // HTMLは固定の同origin参照のみ。任意asset pathやcredentialは配信しない。
+    // HTML uses only fixed same-origin references; never serve arbitrary asset paths or credentials.
     for (const path of ['/docs', '/docs/']) {
       const response = await fetch(`${base}${path}`);
       assert.equal(response.status, 200);
@@ -68,6 +68,6 @@ test('HTTP文書は同origin assetと一致するJSON/YAMLを公開し、offer�
   }
 });
 
-test('HTTP文書handlerはURL未指定を処理せず通常routingへ戻す', () => {
+test('HTTP documentation handler leaves missing URLs to normal routing', () => {
   assert.equal(serveSignalingDocs({ method: 'GET' } as IncomingMessage, {} as ServerResponse), false);
 });

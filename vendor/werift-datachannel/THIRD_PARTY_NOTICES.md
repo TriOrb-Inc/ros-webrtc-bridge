@@ -1,6 +1,6 @@
 # Runtime dependency notices
 
-Werift core の推移依存について、検証した lock の版と配布時に保持する通知です。
+Verified lockfile versions and redistribution notices for the transitive dependencies of Werift core.
 
 ## @fidm/asn1 1.0.4 (MIT)
 

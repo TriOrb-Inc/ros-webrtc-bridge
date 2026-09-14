@@ -498,7 +498,7 @@
   "notices": {
     "LICENSE": "b83683f3f71b5971e6c2e33a8b894a49d752fd24c11b8ae08b53ca20f594fca5",
     "NOTICE": "240f643a19cc8c755be1541d54c03fd9b91417454693773687fe41fc1a470c1f",
-    "THIRD_PARTY_NOTICES.md": "b5181ff8b4c42fe988d45d2ae809cb64c5272b1f3fd95c2186b75b6c1c38f041",
+    "THIRD_PARTY_NOTICES.md": "ddb039e43be85e17542a13f8e407d2e46fb3cc258f6cd841b9bc8685cf76505e",
     "dependency-licenses.json": "112b3faf39794a36eef2977a9cb8de55bb41fa7dad39a7d7c788223ba04efdb1"
   }
 }
