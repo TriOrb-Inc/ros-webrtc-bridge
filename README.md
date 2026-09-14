@@ -69,6 +69,8 @@ PR作成・再オープン・PRブランチへの追加pushでは、[GitHub Acti
 
 ## 開発・運用文書
 
+- [フロントエンド接続ガイド](docs/frontend-integration.md): HTTPS signaling、固定3 DataChannel、購読・command・再接続と型変換の実装手順。
+
 - [CONTRIBUTING.md](CONTRIBUTING.md): 共通の開発規約、検証、依存ライセンス方針。
 - [TESTS.md](TESTS.md): テスト設計、受け入れ条件、カバレッジ測定、CIとリリースの判定方針。
 - [docs/ros-packaging.md](docs/ros-packaging.md): colcon build、install layout、実行、動的interface依存。
