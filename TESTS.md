@@ -235,7 +235,7 @@ npm run test:packaging:contract
 | `tests/unit/codec/` | TYPE-01、SEC-01のdescriptor/値/容量 | 全ROS型のnative互換性 |
 | `tests/unit/session/`、`router/` | AUTH、CMD、FLOW、SIZE、LIFE、PROの状態・wire境界 | 負荷、native滞留、SDK |
 | `tests/unit/ros/`、`app/` | descriptor、64bit/bytes、hash、起動/終了、実HTTPSと認証 | 多ユーザーidentity、全ROS型 |
-| `tests/unit/transport/`、`signaling/` | 3channel属性、SDP/message容量、待機中取消、認証前拒否、peer解放 | 実ネットワーク障害 |
+| `tests/unit/transport/`、`signaling/` | 3channel属性、SDP/message容量、待機中取消、認証前拒否、peer解放、HTTP仕様JSON/YAML一致、Swagger同origin assets、credential非掲載 | 実ネットワーク障害 |
 | `tests/contracts/module-flow.test.ts` | 設定→codec→guard→同期publish spy、codec→byte queue | 独立ROS観測は下記 |
 | `tests/ros/native.test.ts` | String/Twist、外部BridgeFrame、連鎖remap、実entity・終了 | QoS不一致、全ROS型、性能 |
 | `tests/browser/`、`tests/connection/` | install済みartifact、実wire/String/Twist/BridgeFrame、CMD-01/02、ACK-01、NET-01 UDP、再接続 | TURN TCP/TLS、UDP遮断、controller |

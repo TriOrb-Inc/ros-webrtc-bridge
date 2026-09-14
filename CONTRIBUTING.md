@@ -51,7 +51,7 @@ npm run test:performance
 
 buildは前回の`.runtime/build/`を削除してTypeScriptとsource mapを再生成します。`node_modules/`はnpm標準の解決先のためrootに置き、Gitから除外します。lintは未整備です。PR作成・再オープン・PRブランチへの追加pushで[CI](.github/workflows/ci.yml)を実行します。testコマンドと保証範囲は [TESTS.md](TESTS.md#11-実装順序と完了条件)を参照してください。
 
-実行時依存は`yaml 2.9.0`（ISC）、`rclnodejs 2.2.0`（Apache-2.0）、[werift coreのlocal package](vendor/werift-datachannel/README.md)（MIT）です。rclnodejsのinstall・型生成はROS環境で明示実行し、ROS不要のUnitではnativeをロードしません。[ref-napiの通知補完](vendor/rclnodejs-notices/README.md)も配布時に保持してください。
+実行時依存は`yaml 2.9.0`（ISC）、`rclnodejs 2.2.0`（Apache-2.0）、HTTP文書用`swagger-ui-dist 5.32.15`（Apache-2.0）、[werift coreのlocal package](vendor/werift-datachannel/README.md)（MIT）です。`swagger-ui-dist`の推移依存`@scarf/scarf 1.4.0`もApache-2.0であり、標準の`npm ci --ignore-scripts`でinstall時telemetryを実行しない。Swagger UIは配布済みCSS/JavaScriptだけを読み込み、この補助packageをruntimeでimportしない。rclnodejsのinstall・型生成はROS環境で明示実行し、ROS不要のUnitではnativeをロードしません。[ref-napiの通知補完](vendor/rclnodejs-notices/README.md)も配布時に保持してください。
 
 ROS package外装を変更する場合は、対象distroをsourceした環境で`npm rebuild rclnodejs --foreground-scripts`を実行した後、`colcon build`、`colcon test`、install済みの`ros2 run` / `ros2 launch`を確認します。Humble/Jazzyを隔離検証する`npm run test:packaging`の前提、CMake option、動的ROS interface依存は[ROS package化](docs/ros-packaging.md)を参照してください。
 

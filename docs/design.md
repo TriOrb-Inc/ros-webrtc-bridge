@@ -291,6 +291,10 @@ M0では、次の事項を検証・確定する。
 
 `packages/bridge/src/`にconfig、codec、session、router、ROS adapter、transport、HTTPS signaling、起動CLIを実装している。`package.xml`と`CMakeLists.txt`でament/colconへ接続し、runtime、npm依存、設定、launch、`ros2 run` wrapperをinstallする。Humble/Jazzyのarm64 Docker、Node 22.22.2、rclnodejs 2.2.0、Chromium 153.0.8010.12でString/Twistと外部BridgeFrameの双方向通信、直接接続、TURN UDP、旧command拒否、再接続を検証した。接続Gatewayはcolcon install済みartifactから起動する。package外装はclean sourceと事前構築npm cacheからnetwork遮断container内でbuild/test/run/launchを再構成する。amd64はPR matrixで実測し、Debian/bloom公開は当面対象外とする。他browser・正式性能budget等のM0残件は別途評価する。
 
+### HTTP signaling文書
+
+同じHTTPS listenerから `/docs`、`/openapi.json`、`/openapi.yaml` を認証なしで公開する。OpenAPIの単一正本は `packages/bridge/src/signaling/openapi.ts` であり、healthとBearer保護されたofferの実HTTP契約だけを記述する。Topic Pub/Sub、catalog、ready等のDataChannel操作をREST endpointへ変換しない。Swagger UIは固定npm依存の同origin assetsを使い、相対server URLにより配備先portに追随する。外部validatorと認証永続化を無効にし、serverのcredentialを文書へ含めない。
+
 ### 起動設定
 
 [設定loader](../packages/bridge/src/config/README.md)は[bridge.yaml](../examples/bridge.yaml)を検証し、変更できないbinding配列を返す。型loaderによる確認済み型名一覧と、ROS adapterのremap関数を注入する。公開名は保持し、writer所有権には解決済みROS名を使う。同一出力Topicへ向かうaliasで、型・QoS・access・guard・rate・配送・queueが食い違う場合は起動を拒否する。
