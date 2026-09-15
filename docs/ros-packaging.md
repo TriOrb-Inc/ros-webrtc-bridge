@@ -8,6 +8,7 @@ The ROS package integration consists of:
 
 - `package.xml`: package metadata, ament/Node/launch dependencies, and ownership of dynamic ROS interface dependencies.
 - `CMakeLists.txt`: transport and TypeScript build, CTest, and installation of the runtime, dependencies, configuration, and launch files.
+- `scripts/credential-store.mjs`: reusable credential initialization/read API, installed under `share/ros_webrtc_bridge/scripts`.
 - `scripts/ros_webrtc_bridge`: wrapper that starts the installed ES module through `ros2 run`.
 - `launch/bridge.launch.py`: launch file that resolves the installed configuration and entrypoint.
 - `examples/*.yaml`: example configurations installed under `share/ros_webrtc_bridge/examples`.
@@ -88,3 +89,21 @@ Missing or ungenerated types are rejected during startup type resolution. There 
 These tests do not replace independent rclpy, real Chromium, or direct/TURN UDP tests. Debian/bloom publication is currently out of scope. The package is not registered with the ROS build farm; clean-source CI containers without network access provide build-farm-like reproducibility checks. Bundling `node_modules` is a distro/architecture-specific PoC approach. A future public release must separately fix how runtime dependencies and license notices are produced.
 
 Transport materialization already uses only bundled local inputs and works offline. Installing Node dependencies from clean source still requires a prepopulated npm cache; supplying dependency artifacts to the ROS build farm remains unresolved. The packaging smoke test copies source excluding root/vendor `node_modules` and `.runtime`, and colcon `build`/`install`/`log`, then reconstructs offline npm installation, rclnodejs rebuild, build/test/install/run using CMake options. A prebuilt ROS test image can run with `docker run --network none` to check network independence.
+
+## Persistent credential store
+
+Resolve the shared helper from the active ROS installation, not a source workspace:
+
+```bash
+bridge_share="$(ros2 pkg prefix --share ros_webrtc_bridge)"
+node "${bridge_share}/scripts/credential-store.mjs" ensure "${BRIDGE_CREDENTIAL_FILE}"
+node "${bridge_share}/scripts/credential-store.mjs" read "${BRIDGE_CREDENTIAL_FILE}"
+```
+
+The CLI also supports `colcon --symlink-install`; it compares canonical entrypoint paths and remains inactive when imported as an ESM module. Both CLI commands print only fixed status text and use exit status 0/1. Neither command prints the token or path. `read` checks an existing store; `ensure` creates it only when absent. Trusted ESM callers can import `ensureCredential(path)` or `readCredential(path)` from that same installed module; both resolve to the secret string and reject with `credential_store_unavailable`, without a path or original I/O error. Do not log their return values. The module has no ROS or npm dependency.
+
+New credentials contain 32 cryptographically random bytes encoded as 64 lowercase hexadecimal characters. An existing value is never rotated: a 32–4096-character ASCII Bearer token with at most one trailing LF or CRLF is retained. File size is limited to 4096 bytes, including the terminator. Symlinks anywhere in the path, nonregular files, foreign ownership, and file permissions other than 0600 are rejected. New parent directories use 0700; existing containing directories such as 0755 are accepted only when owned by the process user and not group/world writable. Existing permissions are not silently changed. Deployment administrators control the ancestor directories; same-user malicious concurrent renames are outside this local storage boundary.
+
+Concurrent initializers publish a fully written private inode with an atomic, non-replacing hardlink on the same filesystem, then read the winner's value. Candidate directories are removed even after a failed publication; a process killed mid-operation can leave a private `.credential-*` staging directory for administrator cleanup. The target is never overwritten. Use a filesystem supporting hardlinks.
+
+The helper does not change a running Bridge's credential, grant Topic permissions, provide a credential-distribution HTTP API, or authenticate callers. A deployment must load the resulting file into `BRIDGE_CREDENTIAL` before starting the Bridge and protect any API exposing the token. Existing Bridge authentication and TLS requirements remain unchanged.

@@ -11,7 +11,7 @@
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('.runtime/build', {recursive:true, force:true})\" && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && c8 node --test --test-timeout=10000 .runtime/build/tests/unit/*/*.test.js .runtime/build/tests/contracts/*.test.js",
+    "test": "npm run build && c8 node --test --test-timeout=10000 .runtime/build/tests/unit/*/*.test.js .runtime/build/tests/contracts/*.test.js tests/unit/credential/*.test.mjs",
     "test:coverage": "npm run build && node --test .runtime/build/tests/coverage/calibration.test.js",
     "prepare:transport": "node vendor/werift-datachannel/materialize.mjs",
     "refresh:transport": "node vendor/werift-datachannel/refresh.mjs",

@@ -15,6 +15,7 @@ Initial target distros are ROS 2 Humble and Jazzy, tested separately in Docker. 
 - [Session](packages/bridge/src/session/README.md): command lease, sequence, and ownership validation; finite per-peer queues.
 - [ROS adapter](packages/bridge/src/ros/README.md): descriptor generation, rclnodejs normalization, fixed ROS entities, and logical listeners.
 - [Router](packages/bridge/src/router/README.md): wire v1, ready, catalog, Pub/Sub, authorization, rates, and reconnection.
+- [Persistent credential storage](docs/ros-packaging.md#persistent-credential-store): initialize once or read an existing private Bearer file through an installed ESM helper.
 - [Startup and HTTPS](packages/bridge/src/app/README.md): explicit single-Bearer permissions, TLS, three DataChannels, and cleanup.
 
 Runs on Node.js 22 (22.12 or later; verified with 22.22.2).

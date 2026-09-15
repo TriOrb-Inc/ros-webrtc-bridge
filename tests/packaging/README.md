@@ -27,7 +27,7 @@ The test checks the following in order:
 1. Static contracts for `package.xml`, ament dependencies, executable scripts, launch files, and bundled configuration.
 2. A clean source copy excluding root/vendor `node_modules` and `.runtime`, plus colcon `build`, `install`, and `log`.
 3. In an isolated workspace, `colcon build` with cache-only `npm ci --offline`, rclnodejs rebuild, and local transport materialization, followed by `colcon test` and `colcon test-result`.
-4. The installed ament index, package metadata, launch files, configuration, and `ros2 pkg executables`.
+4. The installed ament index, package metadata, launch files, configuration, `ros2 pkg executables`, and reusable credential-store CLI under the package share directory.
 5. HTTPS health becomes ready through installed `ros2 run ros_webrtc_bridge ros_webrtc_bridge`.
 6. The same health becomes ready through installed `ros2 launch ros_webrtc_bridge bridge.launch.py`.
 7. A temporary configuration referencing an unavailable ROS interface fails fast rather than completing startup or timing out.
