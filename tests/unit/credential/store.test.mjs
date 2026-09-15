@@ -149,3 +149,65 @@ test('credential store CLI recognizes symlink installations without import side 
     assert.equal(result.stderr, '');
   }
 });
+
+// Observe actual successful fsync calls, including paths whose creation was recursive or done by another caller.
+test('credential ensure syncs containing and ancestor directories before returning every winner', async t => {
+  const directory = await fixture(t);
+  const filename = path.join(directory, 'nested', 'new', 'credential');
+  const originalOpen = fs.open;
+  const synced = [];
+  // Recording only paths keeps test diagnostics free of credential data.
+  t.mock.method(fs, 'open', async (...args) => {
+    const handle = await originalOpen(...args);
+    if ((await handle.stat()).isDirectory()) {
+      const sync = handle.sync.bind(handle);
+      handle.sync = async () => { await sync(); synced.push(args[0]); };
+    }
+    return handle;
+  });
+  const value = await ensureCredential(filename);
+  const expected = [];
+  // Bottom-up fsync makes each created child entry durable in its own parent before success is reported.
+  for (let current = path.dirname(filename); ; current = path.dirname(current)) {
+    expected.push(current);
+    if (path.dirname(current) === current) break;
+  }
+  assert.deepEqual(synced, expected);
+  synced.length = 0;
+  sameSecret(await ensureCredential(filename), value);
+  assert.deepEqual(synced, expected);
+  // Existing/concurrent readers also sync the whole chain rather than relying on the creator's progress.
+  synced.length = 0;
+  const winners = await Promise.all([ensureCredential(filename), ensureCredential(filename)]);
+  assert.ok(winners.every(winner => winner === value));
+  for (const ancestor of expected) assert.equal(synced.filter(item => item === ancestor).length, 2);
+});
+
+// A filesystem may reject directory fsync after publication; no such failure may produce a success response.
+test('credential ensure fails safely when containing or ancestor directory sync fails', async t => {
+  const directory = await fixture(t);
+  const originalOpen = fs.open;
+  for (const failure of ['containing', 'ancestor', 'open']) {
+    const filename = path.join(directory, failure, 'nested', 'credential');
+    const failingPath = failure === 'ancestor' ? directory : path.dirname(filename);
+    let closed = false;
+    // Fail only the directory durability step, leaving normal file content sync and metadata validation intact.
+    const injected = t.mock.method(fs, 'open', async (...args) => {
+      if (args[0] === failingPath && failure === 'open') throw new Error('private I/O diagnostic');
+      const handle = await originalOpen(...args);
+      if (args[0] === failingPath) {
+        const close = handle.close.bind(handle);
+        handle.sync = async () => { throw new Error('private I/O diagnostic'); };
+        handle.close = async () => { closed = true; await close(); };
+      }
+      return handle;
+    });
+    await assert.rejects(ensureCredential(filename), /^Error: credential_store_unavailable$/);
+    assert.equal(closed, failure !== 'open');
+    injected.mock.restore();
+    // A failed durability check never rotates the already published value and always clears staging candidates.
+    const published = await readCredential(filename);
+    sameSecret(await ensureCredential(filename), published);
+    assert.deepEqual(await fs.readdir(path.dirname(filename)), ['credential']);
+  }
+});

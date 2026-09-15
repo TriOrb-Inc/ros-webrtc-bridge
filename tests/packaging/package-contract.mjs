@@ -93,6 +93,11 @@ await access(resolve(root, 'scripts/credential-store.mjs'), constants.R_OK);
 assert.equal((await stat(resolve(root, 'scripts/credential-store.mjs'))).isFile(), true);
 assert.match(await text('CMakeLists.txt'), /install\(FILES scripts\/credential-store\.mjs\s+DESTINATION "share\/\$\{PROJECT_NAME\}\/scripts"/);
 
+// Credential fixtures must remain in the trap-cleaned secret tree even when the smoke test fails.
+const smoke = await text('tests/packaging/smoke.sh');
+assert.match(smoke, /\$\{secret_dir\}\/credential-store\/token/);
+assert.doesNotMatch(smoke, /\$\{result_dir\}\/credential-store/);
+
 const inspected = [
   ['package.xml', packageXml],
   ['CMakeLists.txt', await text('CMakeLists.txt')],

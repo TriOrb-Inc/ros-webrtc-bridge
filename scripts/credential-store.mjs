@@ -48,6 +48,27 @@ async function readStored(filename) {
   }
 }
 
+/** Persist the credential entry and every ancestor entry, including directories created by concurrent callers. */
+async function syncDirectoryTree(directory) {
+  let current = directory;
+  while (true) {
+    const handle = await fs.open(current, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    // Closing must happen even when fsync fails; callers may only report success after the whole chain is durable.
+    try { await handle.sync(); } finally { await handle.close(); }
+    const parent = path.dirname(current);
+    if (parent === current) return;
+    current = parent;
+  }
+}
+
+/** Read and persist a completed store. Input: target path; output: secret, only after directory metadata is synced. */
+async function readDurable(filename) {
+  const credential = await readStored(filename);
+  // Existing files can belong to a concurrent initializer whose directory sync has not finished yet.
+  await syncDirectoryTree(path.dirname(filename));
+  return credential;
+}
+
 /** Read an existing private credential. Input: local path; output: token string, or a fixed safe error. */
 export async function readCredential(value) {
   try {
@@ -70,7 +91,7 @@ export async function ensureCredential(value) {
     // Newly created directories are private; existing non-writable-by-others directories are not chmodded.
     await fs.mkdir(directory, { recursive: true, mode: 0o700 });
     await checkDirectory(directory);
-    try { return await readStored(filename); } catch (error) {
+    try { return await readDurable(filename); } catch (error) {
       if (error.code !== 'ENOENT') throw error;
     }
     // Publish a fully written inode with link's atomic no-replace semantics, never a partially written destination.
@@ -86,7 +107,7 @@ export async function ensureCredential(value) {
       try { await fs.link(candidate, filename); } catch (error) {
         if (error.code !== 'EEXIST') throw error;
       }
-      return await readStored(filename);
+      return await readDurable(filename);
     } finally {
       await fs.rm(staging, { recursive: true, force: true });
     }
