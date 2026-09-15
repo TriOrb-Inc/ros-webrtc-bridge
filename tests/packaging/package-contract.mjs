@@ -88,9 +88,20 @@ await access(launch, constants.R_OK);
 assert.equal((await stat(executable)).isFile(), true);
 assert.equal((await stat(launch)).isFile(), true);
 
+// The reusable store must be shipped at a stable package-share path, independent of a source workspace.
+await access(resolve(root, 'scripts/credential-store.mjs'), constants.R_OK);
+assert.equal((await stat(resolve(root, 'scripts/credential-store.mjs'))).isFile(), true);
+assert.match(await text('CMakeLists.txt'), /install\(FILES scripts\/credential-store\.mjs\s+DESTINATION "share\/\$\{PROJECT_NAME\}\/scripts"/);
+
+// Credential fixtures must remain in the trap-cleaned secret tree even when the smoke test fails.
+const smoke = await text('tests/packaging/smoke.sh');
+assert.match(smoke, /\$\{secret_dir\}\/credential-store\/token/);
+assert.doesNotMatch(smoke, /\$\{result_dir\}\/credential-store/);
+
 const inspected = [
   ['package.xml', packageXml],
   ['CMakeLists.txt', await text('CMakeLists.txt')],
+  ['scripts/credential-store.mjs', await text('scripts/credential-store.mjs')],
   ['scripts/ros_webrtc_bridge', await text('scripts/ros_webrtc_bridge')],
   ['launch/bridge.launch.py', await text('launch/bridge.launch.py')],
   ...yamlFiles.map((path, index) => [path, yamlSources[index]])

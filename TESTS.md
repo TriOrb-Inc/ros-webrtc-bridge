@@ -268,3 +268,7 @@ Build output goes to `.runtime/build/` and coverage to `.runtime/coverage/`. Ins
 - [Node.js test runner](https://nodejs.org/api/test.html): Runner execution, isolation, and mocking features.
 - [c8](https://github.com/bcoe/c8): Measurement of unloaded files with `--all` and source-map support. Calibrate includes/exclusions and thresholds for the selected version.
 - [Playwright browsers](https://playwright.dev/docs/browsers): Reflect distributed browser types and differences from product browsers in the support matrix.
+
+## Credential-store validation
+
+`npm test` also runs `tests/unit/credential/*.test.mjs` directly and enforces C0/C1 100% for `scripts/credential-store.mjs`. Tests cover create-once concurrency, existing-value retention, private permissions, symlink/nonregular/path rejection, malformed tokens, ownership, storage publication failure cleanup, ordered directory fsync including newly created ancestors and existing/concurrent winners, directory-sync failure rejection, secret-free CLI output, direct execution through symlink installations, and inert ESM imports. Tokens are generated at runtime and assertions never render their values. The package contract verifies the shared helper's source and CMake install rule; the packaging smoke test executes `ensure` and `read` from the installed `share/ros_webrtc_bridge/scripts/credential-store.mjs`. These checks do not establish safety against malicious processes with the same user identity or credential delivery over HTTP.

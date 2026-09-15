@@ -295,6 +295,8 @@ Publish supported environments and performance conditions based on verification 
 
 The same HTTPS listener serves `/docs`, `/openapi.json`, and `/openapi.yaml` without authentication. `packages/bridge/src/signaling/openapi.ts` is the single OpenAPI authority, describing only health and Bearer-protected offer HTTP contracts. Topic Pub/Sub, catalog, ready, and other DataChannel operations are not converted into REST endpoints. Swagger UI uses same-origin assets from a pinned npm dependency and a relative server URL that follows the deployment port. External validation and credential persistence are disabled, and server credentials are excluded from documentation.
 
+The installed [credential store](ros-packaging.md#persistent-credential-store) provides an opt-in local initialization/read helper. It preserves existing values, rejects unsafe files, and does not expose credentials on stdout or add an HTTP distribution endpoint. Runtime authentication still receives one credential at startup.
+
 ### Startup configuration
 
 The [configuration loader](../packages/bridge/src/config/README.md) validates [bridge.yaml](../examples/bridge.yaml) and returns immutable bindings. It receives verified type names and the ROS adapter's remapping/normalization function. Public names remain unchanged; writer ownership uses resolved ROS names. Native creation uses original input names, and actual Topic names are checked afterward. Aliases sharing an output with conflicting type, QoS, access, guard, rate, delivery, or queue settings reject startup.

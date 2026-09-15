@@ -134,6 +134,7 @@ package_prefix="$(tail -n 1 "${result_dir}/package-prefix.log")"
 share_dir="${package_prefix}/share/${package_name}"
 for path in \
   "${share_dir}/package.xml" \
+  "${share_dir}/scripts/credential-store.mjs" \
   "${share_dir}/launch/bridge.launch.py" \
   "${share_dir}/examples/bridge.yaml" \
   "${share_dir}/examples/connection.yaml"; do
@@ -142,6 +143,14 @@ for path in \
     exit 1
   fi
 done
+# Verify the installed reusable store independently of the source tree; it never prints its token.
+run_logged credential-store-ensure 30 node "${share_dir}/scripts/credential-store.mjs" ensure "${secret_dir}/credential-store/token"
+if [[ ! -s "${secret_dir}/credential-store/token" ]]; then
+  echo 'installed credential store did not initialize a token file' >&2
+  exit 1
+fi
+run_logged credential-store-read 30 node "${share_dir}/scripts/credential-store.mjs" read "${secret_dir}/credential-store/token"
+rm -rf "${secret_dir}/credential-store"
 run_logged package-executables 30 bash -lc \
   "source '/opt/ros/${ros_distro}/setup.bash' && source '${install_setup}' && ros2 pkg executables '${package_name}'"
 mapfile -t package_executables < <(

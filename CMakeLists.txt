@@ -130,6 +130,9 @@ install(DIRECTORY examples
 install(DIRECTORY launch
   DESTINATION "share/${PROJECT_NAME}"
 )
+install(FILES scripts/credential-store.mjs
+  DESTINATION "share/${PROJECT_NAME}/scripts"
+)
 install(FILES LICENSE
   DESTINATION "share/${PROJECT_NAME}"
 )

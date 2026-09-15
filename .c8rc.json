@@ -1,8 +1,17 @@
 {
   "all": true,
-  "src": ["packages/bridge/src"],
-  "include": ["packages/bridge/src/**/*.ts"],
-  "extension": [".ts"],
+  "src": [
+    "packages/bridge/src",
+    "scripts"
+  ],
+  "include": [
+    "packages/bridge/src/**/*.ts",
+    "scripts/credential-store.mjs"
+  ],
+  "extension": [
+    ".ts",
+    ".mjs"
+  ],
   "exclude-after-remap": true,
   "check-coverage": true,
   "per-file": true,
@@ -10,6 +19,11 @@
   "branches": 100,
   "functions": 100,
   "lines": 100,
-  "reporter": ["text", "json-summary", "json", "lcov"],
+  "reporter": [
+    "text",
+    "json-summary",
+    "json",
+    "lcov"
+  ],
   "reports-dir": ".runtime/coverage"
 }
