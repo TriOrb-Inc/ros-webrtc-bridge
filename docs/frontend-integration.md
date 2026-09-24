@@ -2,7 +2,7 @@
 
 This guide targets browser implementations using the current HTTPS signaling and wire v1. No browser SDK is provided. The examples cover minimal connection setup and messages, not a complete SDK with authentication management, type generation, reconnection management, or UI state handling.
 
-Inspect the running server's HTTP specification at `/docs`, `/openapi.json`, and `/openapi.yaml`. The only REST endpoints are `GET /health` and `POST /offer`. Topic catalogs, subscriptions, and publication use WebRTC DataChannels. Services, Actions, and MediaTracks are outside this connection's scope.
+Inspect the running server's HTTP specification at `/docs`, `/openapi.json`, and `/openapi.yaml`. The only REST endpoints are `GET /health` and `POST /offer`. Topic catalogs, subscriptions, publication, and video control use WebRTC DataChannels. Services, Actions, and audio are outside this connection's scope.
 
 ## Endpoint, authentication, and TLS
 
@@ -237,3 +237,54 @@ Do not treat the Node `Buffer`-based server codec as a directly importable brows
 | Command rejected | Direction, schema, guard requirement, lease, epoch, monotonic seq, rate, channel, capacity |
 
 Wire errors arrive as control `error`; the public `code` is always `request_rejected`. Internal reasons such as lease expiry and writer conflicts are not exposed. If `id` is present, resolve the corresponding pending request as failed; for asynchronous errors without `id`, define a policy to recheck stream/connection state. Observe HTTP/ICE/DTLS/SCTP/wire/ROS separately. Do not put credentials, SDP, ICE candidates, or payloads in normal logs. See the reproducible raw client in the [browser test](../tests/browser/scenario.ts) and the authoritative wire specification in [Session router](../packages/bridge/src/router/README.md).
+
+## Receiving video
+
+Available only when the deployment configures video tracks. Without them the server rejects any
+offer containing an `m=video` section, so add one only if the deployment told you it serves video.
+
+Create the receive-only transceivers **before** the offer, alongside the three DataChannels:
+
+```typescript
+const transceiver = pc.addTransceiver('video', { direction: 'recvonly' });
+transceiver.receiver.track.onunmute = () => { videoElement.srcObject = new MediaStream([transceiver.receiver.track]); };
+```
+
+Add at most as many sections as the deployment allows; extra ones are rejected rather than ignored.
+Each must offer H.264 with `packetization-mode=1`, which is the browser default. The answer is
+`sendonly`, and the server echoes the payload type and `profile-level-id` your offer named.
+
+After `welcome`, its `video` array lists the tracks you may watch, each as `{track, codec}`. The key
+is absent when you may watch none. Backend, ROS topic and bitrate are deliberately not disclosed.
+
+A negotiated section carries nothing until you ask for it:
+
+```json
+{"v":1,"op":"video.subscribe","id":"r7","track":"front"}
+{"v":1,"op":"video.subscribed","id":"r7","track":"front","mid":"1"}
+```
+
+Match the returned `mid` against `transceiver.mid` to find the receiver carrying that track. Keep the
+binding: unsubscribing stops delivery but the section stays bound to the track, so resubscribing
+resumes on the same `mid` without renegotiation. A `mid` is never reassigned to a different track
+within a session.
+
+```json
+{"v":1,"op":"video.unsubscribe","id":"r8","mid":"1"}
+{"v":1,"op":"video.unsubscribed","id":"r8"}
+```
+
+Lifecycle changes arrive unsolicited on the control channel and never carry a cause:
+
+```json
+{"v":1,"op":"video.state","track":"front","mid":"1","state":"active"}
+```
+
+`starting` means the encoder is being brought up, `active` that packets are flowing, `idle` that the
+source stopped, and `failed` that it cannot serve you - after which you may subscribe again to retry.
+Treat rejected requests as you do any other: the server replies with the fixed `request_rejected`
+classification and never explains why.
+
+The encoder runs only while somebody is watching, so the first subscription may take a moment before
+`active` arrives. The server sends a keyframe when you join, and decoder keyframe requests (RTCP PLI)
+are forwarded automatically; there is no operation for requesting one.

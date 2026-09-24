@@ -8,8 +8,8 @@ Status: Unit and contract tests, real ROS, real Chromium, direct / TURN UDP conn
 
 Priorities, in order, are preventing unauthorized or expired commands from reaching ROS publication, type/protocol compatibility, bounded resource use, connectivity, and performance. Scale testing to the impact of failures on users rather than code size.
 
-- Scope includes Topic Pub/Sub, configuration, codecs, adapters, sessions, SDKs, signaling, and transport.
-- Services, Actions, Parameters, MediaTracks, and cyclic ROS-to-ROS forwarding are outside initial-version test scope.
+- Scope includes Topic Pub/Sub, configuration, codecs, adapters, sessions, SDKs, signaling, transport, and the opt-in video plane.
+- Services, Actions, Parameters, audio, browser-to-ROS video, and cyclic ROS-to-ROS forwarding are outside initial-version test scope.
 - Mock success is not evidence of real ROS QoS, native callbacks, DDS discovery, browser interoperability, or NAT traversal.
 - `published_to_ros` confirms only ROS publish API success. It does not guarantee controller receipt/completion, exactly-once behavior, or robot stopping time.
 - Record hardware tests of command gates and watchdogs separately as system validation that includes the target controller. Bridge-only success is not a substitute.
@@ -88,6 +88,20 @@ The following are mandatory initial-version conditions. Include IDs in test name
 | PERF-01 | Measure real WebRTC → ROS → Web with a fixed workload | Aggregate RTT, connection time, throughput, CPU/RSS, loss/reject/unexpected, and cleanup without sensitive data; distinguish safety invariants from provisional budgets | Performance |
 | SOAK-01 | Sustain the same installed path for one hour | Satisfy crash/OOM, loss/reject/unexpected, RSS, and cleanup criteria; do not treat shared-runner values as absolute performance guarantees | Performance, weekly CI |
 | SYS-01 | Browser backgrounding/suspension, Gateway crash, delayed DDS/controller delivery | The target controller watchdog/gate stops and rejects late data as specified; pass only under separately defined system conditions | Hardware/system |
+| VID-CFG-01 | Missing/unknown/`auto` backend, backend-incompatible profile or bitrate, unsupported encoding, out-of-range geometry, contradictory limits | Reject at startup naming the configuration path. No `auto` value exists | Unit |
+| VID-CFG-02 | A topic served by two video sources, or by both `topics` and `video_tracks`; `video` and `video_tracks` configured apart | Reject at startup. The two planes never share one ROS topic | Unit |
+| VID-CFG-03 | No `video_tracks` at all | Media plane never created. `m=video` rejected as before, `video.*` unknown, `welcome` gains no `video` key | Unit, Contract, Browser |
+| VID-PROBE-01 | A configured backend that cannot encode on this host | Startup fails **before the listener opens**, naming configuration path, track, backend and cause. Remote errors stay anonymized | Unit, Hardware |
+| VID-SDP-01 | Offer with `m=application` plus receive-only `m=video` | Answer `sendonly` H.264, echoing the offered payload type and profile | Unit, Browser |
+| VID-SDP-02 | `m=audio`, non-`recvonly` video, simulcast/RID, no usable H.264 payload type, more sections than configured, `a=max-message-size` inside a video section | Reject with a fixed internal classification; the peer sees only `offer_rejected`. The DataChannel limit is read outside video sections | Unit |
+| VID-LIFE-01 | Zero viewers | No encoder runs. A negotiated section alone does not start one | Unit, Hardware |
+| VID-LIFE-02 | First, second and last viewer; resubscribe inside and after the grace window | One encoder shared by all viewers; a late joiner gets a keyframe; the encoder stops only after `stop_grace_ms`; resuming inside the window does not restart it | Unit, Browser |
+| VID-LIFE-03 | Encoder fails to start, never emits, or stops unexpectedly | Viewers are told `failed`; the encoder is released; retried only when somebody subscribes again, never by a hidden loop | Unit |
+| VID-KEY-01 | RTCP PLI, including bursts | One keyframe request per `pli_min_interval_ms`; a failing request is reported without stopping the source | Unit, Hardware |
+| VID-AUTH-01 | Track whose `subscribe_scope` was not granted; scope revoked while watching | Absent from the catalog, subscription rejected, zero RTP handed over. After revocation no *new* packet is handed to the peer | Unit, Browser |
+| VID-FLOW-01 | One peer failing to accept packets | RTP is never queued; other viewers keep receiving; the failure is reported anonymously | Unit |
+| VID-LEAK-01 | Repeated connect/subscribe/disconnect cycles | No encoder, transceiver, socket or timer left behind | Unit, Video |
+| VID-HW-01 | A real GStreamer backend on target hardware | The selected element actually encodes and a browser decodes it; evidence recorded | Hardware |
 
 CMD-01 verifies the monotonic-clock expiry boundaries in the design. Do not substitute the browser wall clock for Gateway expiry decisions.
 
@@ -222,10 +236,18 @@ npm run typecheck
 npm test
 npm run test:coverage
 npm run test:transport
+npm run test:transport:media
 npm run test:packaging:contract
 ```
 
 `npm test` builds and runs unit and module integration tests, requiring 100% statement/branch/function/line coverage for every first-party runtime file. Individual tests have a 10-second timeout and usually finish within seconds. Type declarations (`.d.ts`), external dependencies, generated JS, and tests/harnesses are excluded. Generated Werift code is external, but `npm run test:transport` verifies actual DataChannel traffic including pinned patches.
+
+`npm run test:transport:media` verifies the vendored Werift media path between two local peers: that
+send-only H.264 transceivers keep their m-line order and receive mids, that RTP survives DTLS-SRTP
+with the sender stamping its own SSRC, that RTCP PLI reaches the sender, and what SRTP costs. It
+paces packets at their media rate, because an unpaced burst overruns the receiver and measures
+nothing. Measured on AGX Orin (JetPack 5, Node 20.20.2): 3.32 Mbps at 0% loss for roughly a quarter
+of one core.
 
 `npm run test:coverage` calibrates measurement settings. Isolated TypeScript fixtures check source maps, unexecuted branches, unimported files, and merging across processes. It asserts failures in intentionally under-covered child processes; the parent passing means calibration passed. Product thresholds are not lowered. Child timeouts default to 30 seconds and can be overridden with positive integer milliseconds in `COVERAGE_CALIBRATION_TIMEOUT_MS`. The overall limit is twelve times that value, with progress every five seconds while waiting.
 
@@ -235,19 +257,30 @@ npm run test:packaging:contract
 | `tests/unit/codec/` | TYPE-01, SEC-01 descriptors/values/capacity | Native compatibility of all ROS types |
 | `tests/unit/session/`, `router/` | AUTH, CMD, FLOW, SIZE, LIFE, PRO state/wire boundaries | Load, native backlog, SDK |
 | `tests/unit/ros/`, `app/` | Descriptors, 64-bit/bytes, hashes, startup/shutdown, real HTTPS/authentication | Multiple user identities, all ROS types |
+| `tests/unit/config/video.ts`, `media/`, `router/video.ts`, `transport/sdp.ts` | VID-CFG-01/02/03, VID-PROBE-01, VID-SDP-01/02, VID-LIFE-01/02/03, VID-KEY-01, VID-AUTH-01, VID-FLOW-01 | Real encoders, ROS image validation, browser playback |
 | `tests/unit/transport/`, `signaling/` | Three-channel properties, SDP/message capacity, pending cancellation, rejection before authentication, peer release, matching HTTP JSON/YAML specifications, same-origin Swagger assets, no credential exposure | Actual network faults |
 | `tests/contracts/module-flow.test.ts` | Configuration → codec → guard → synchronous publish spy; codec → byte queue | Independent ROS observation below |
 | `tests/ros/native.test.ts` | String/Twist, external BridgeFrame, chained remapping, real entities/shutdown | QoS mismatches, all ROS types, performance |
 | `tests/browser/`, `tests/connection/` | Installed artifacts, actual wire/String/Twist/BridgeFrame, CMD-01/02, ACK-01, NET-01 UDP, reconnects | TURN TCP/TLS, UDP blocking, controller |
 | `tests/packaging/` | ament metadata, clean offline colcon build/test, installed run/launch, no bundled secrets | Debian/bloom publication, official ROS build farm registration |
+| `tests/video/` | VID-SDP-01, VID-LIFE-01/02, VID-AUTH-01, VID-LEAK-01 through a real ROS graph and a real decoder; `VIDEO_BACKEND` also runs VID-PROBE-01 and VID-HW-01 against a real encoder | Nothing in the video plane, once a backend is selected |
 | `tests/performance/` | Installed direct String echo, RTT/throughput/CPU/RSS, 15-second regression, one-hour soak, cleanup | Event-loop/native backlog, queue/buffers, slow peers, fault injection, formal SLOs |
 
-On a Linux Docker host, verify both distributions' direct / TURN UDP connections with:
+On a Linux Docker host, verify both distributions' direct / TURN UDP connections, and the video
+plane against a real ROS graph and a real browser decoder, with:
 
 ```bash
 npx playwright-core install chromium
 npm run test:connection
+npm run test:video
 ```
+
+`npm run test:video` runs an independent rclpy image publisher and the colcon-installed bridge in
+containers on a private network, and drives a real Chromium from the host. It asserts that nothing
+decodes before `video.subscribe`, that a real decoder then reports `framesDecoded > 0`, that the
+stream stops on unsubscribe, and that resuming reuses the same section. The encoder is the replay
+backend, so it needs no GPU and verifies everything except encoding itself. See
+[video tests](tests/video/README.md).
 
 After sourcing the target ROS distribution and preparing the rclnodejs native addon, verify ROS packaging in isolation with the commands below. CI reuses the connection-test image in each Humble/Jazzy ROS job.
 
@@ -258,6 +291,77 @@ npm run test:soak
 ```
 
 See [connection tests](tests/connection/README.md) for environment isolation, credential creation/deletion, timeouts, and investigative matrix selection; [ROS tests](tests/ros/README.md) for standalone ROS checks; and the [performance harness](tests/performance/README.md) for load settings. Local validation covers Humble/Jazzy arm64 Fast DDS, Jazzy arm64 Cyclone DDS, Node 22.22.2, rclnodejs 2.2.0, Chromium 153.0.8010.12, and coturn 4.6.3. Promote amd64 to verified only after checking Actions results. Browser tests use raw clients because the SDK is not implemented.
+
+`npm run test:video` passes on Jazzy/arm64: Chromium 153.0.8010.12 decodes a 320x240 stream through
+the containerised bridge. That run found a real defect no unit test could - the PeerConnection was
+built without declaring a video codec, so the browser received a payload type it had not negotiated
+and counted packets that never became frames.
+
+In CI the video plane is verified through the replay backend: negotiation, control operations,
+lifecycle, authorization and RTP fan-out are covered, and a committed RTP recording
+(`tests/fixtures/video/h264-320x240.rtp`) stands in for an encoder. Browser playback of the replayed
+stream is not yet part of the browser suite.
+
+**VID-HW-01 passes on hardware.** On an L4T R39 Orin, both GStreamer backends were run through the
+containerised bridge to a real Chromium decoder over 30 seconds:
+
+| Backend | Source | Decoded | Resolution | Keyframes | PLI |
+| --- | --- | --- | --- | --- | --- |
+| `l4t_v4l2` (NVENC) | Mock `sensor_msgs/msg/Image` publisher | 438 | 320x240 | 30 | 0 |
+| `openh264` | Live camera on `/camera0` | 311 | 1600x1300 | 26 | 0 |
+
+The two rows use different sources because this host cannot combine them: hardware encoding needs a
+container matching the host Ubuntu release, while the camera publishers need the Fast DDS build they
+were compiled against. [The video harness](tests/video/README.md) records the mount recipe and the
+ABI constraint behind that split.
+
+Those runs found two defects no unit test reproduced: an L4T encoder element writing to the worker's
+stdout control channel, and asynchronous `video.state` events never being flushed to a peer that only
+watches video. Both are fixed and now covered by unit tests.
+
+`npm run test:video:hardware` reproduces a hardware run in one command on the target and writes its
+evidence, including the host it ran on, to `.runtime/video-results-<backend>-<mode>.json`.
+
+**Delivery over a real network is verified.** Every other video measurement in this document was taken
+with the browser and the bridge on one machine, so nothing had crossed a network interface. This one
+ran the bridge on an L4T R39 robot and the browser on a separate machine, over Wi-Fi and across
+subnets, at 1280x720:
+
+| Source | Link | Decoded / received in 30 s | Packets | Lost | PLI | RTT |
+| --- | --- | --- | --- | --- | --- | --- |
+| Mock publisher, 1280x720, NVENC | Wi-Fi, across subnets | 399 / 400 | 2830 | 0 | 0 | 9 ms |
+| Real camera `/camera0`, 1600x1300 | Wired, same subnet | 320 / 321 | 6162 | 0 | 0 | 12 ms |
+| Real camera `/camera0`, 1600x1300 | Wi-Fi, across subnets | 7 / 7 | 71 | 0 | 4 | 17 ms |
+
+The third row is a slow camera, not a slow bridge: that robot publishes `/camera0` at 0.20 fps, and
+the browser decoded 0.23 fps. Its four PLIs are the decoder asking for an IDR because
+`keyframe_interval: 12` is about 52 seconds at that rate - real-network evidence that the keyframe
+path works, and a reminder that the interval is a frame count, not a duration.
+
+The bridge configures no ICE servers and offers host candidates only (`iceServers: []` in
+`packages/bridge/src/app/cli.ts`), so a relayed video path is out of scope by construction; TURN, when
+a deployment needs it, is the browser's `RTCConfiguration`.
+
+**VID-LEAK-01 and multi-viewer VID-LIFE-02 pass against a real decoder.** `npm run test:video:load`
+runs several browsers on one track at once, then repeats the whole connect/subscribe/leave cycle:
+
+| Measurement | `fixture` | `l4t_v4l2` (NVENC) |
+| --- | --- | --- |
+| Concurrent viewers of one track, all decoding | 4 of 4 | 4 of 4 |
+| Viewers still advancing after half of them left | 2 of 2 | 2 of 2 |
+| Frames decoded per cycle, 6 cycles | 25, 25, 25, 25, 25, 25 | 26, 24, 25, 25, 23, 24 |
+| Gateway resident growth across the cycles | 2.7 MiB | 3.9 MiB |
+
+Both against a 64 MiB budget. A later cycle decoding a fraction of the first is how a leaked encoder,
+transceiver or timer shows up from outside the process, so the flat per-cycle count is the assertion
+that matters. Resident memory is sampled *between* the two phases rather than around both: an encoder
+loads its libraries once, and charging that to the cycles reported a hardware run as a 94 MiB leak
+when the repeated part actually costs 3.9 MiB.
+
+Encoder backends can only run on host hardware, so they sit outside the CI coverage gate by the rule
+in [CONTRIBUTING.md](CONTRIBUTING.md#testing-rules). Everything around them - the seam they plug
+into, the lifecycle, the probe and its error text - stays inside it, and hardware runs must record
+their evidence rather than being assumed.
 
 Passing this scope and packaging tests does not mean every acceptance ID passes. QOS-01/02 mismatches/latched history, NET-01 TCP/TLS/UDP blocking, SYS-01, unmeasured performance indicators, and formal SLOs remain unverified or unimplemented. Debian/bloom publication is currently out of scope. ACK-01 verifies through an actual ROS observer, not controller completion. Distinguish these results from satisfying every mandatory gate and release condition in section 8.
 

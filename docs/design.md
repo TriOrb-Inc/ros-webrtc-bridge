@@ -239,7 +239,7 @@ A generic bridge must not infer stop messages from types. Include browser backgr
 | M2: OSS v0.1 | Authenticated rendezvous, TURN instructions, leases/ACL revocation, reconnection, diagnostics, Humble/Jazzy and multi-browser CI, distribution, bidirectional examples, and protocol documentation |
 | M3: Extensions after measurement | Evaluate binary/CDR, bounded fragmentation, lazy entities, AsyncAPI export, and additional SDK languages based on demand. Large-sensor features are not initial prerequisites |
 
-v0.1 covers Topics only. It excludes Services, Actions, Parameters, video/audio MediaTracks, SFUs, multi-robot management UIs, and automatic ROS-to-ROS relaying. Continuous video may later use MediaTracks as a separate feature.
+v0.1 covers Topics and, as a separate opt-in plane, receive-only H.264 video tracks sourced from `sensor_msgs/msg/Image` (section 15). It excludes Services, Actions, Parameters, audio, browser-to-ROS video, SFUs, multi-robot management UIs, and automatic ROS-to-ROS relaying.
 
 Initial target environments are **ROS 2 Humble / Ubuntu 22.04 and ROS 2 Jazzy / Ubuntu 24.04**. Run distro containers independently and verify builds, bindings, bidirectional Pub/Sub, and QoS. Peer ROS nodes must join isolated test graphs without contaminating the host's existing ROS environment. [TESTS.md](../TESTS.md) defines both distro test conditions.
 
@@ -334,3 +334,64 @@ Browser SDKs, JWT/multi-user identity management, outbound rendezvous, TURN TCP/
 Deployment packages declare dependencies for interfaces referenced by custom configurations, source the overlay, and generate rclnodejs bindings. Tests use external `bridge_test_interfaces` to verify nested messages, bounded strings, fixed arrays, int64/uint64, and uint8 sequences bidirectionally between real Chromium, an installed Gateway, and an independent rclpy node. The core package does not depend on this test interface. [ROS packaging](ros-packaging.md) describes install layout, keeping secrets out of launch arguments, and verification scope.
 
 PR creation, reopening, and branch updates trigger [CI](../.github/workflows/ci.yml): unit/integration tests, coverage calibration, transport tests, and real ROS/Chromium/offline colcon package tests across Humble/Jazzy, arm64/amd64, and Fast DDS/Cyclone DDS with one-axis variations. The [performance workflow](../.github/workflows/performance.yml) runs short PR measurements and weekly/manual one-hour soaks. Additional browsers, fault injection, controller tests, and release testing remain later plans in [TESTS.md](../TESTS.md#8-ci-and-support-matrix).
+
+## 15. Video plane
+
+Status: implemented end to end. The TypeScript plane - negotiation, control operations, lifecycle,
+authorization and RTP fan-out - is unit tested with a replay backend, and a GStreamer media worker
+provides the `l4t_v4l2` and `openh264` backends. Both have been verified to a real browser decoder
+on Jetson hardware; see [the video harness](../tests/video/README.md).
+
+Video is a separate plane from Topics. Raw frames and RTP never pass through the JSON codec or the
+DataChannel queues: a 720p frame is four orders of magnitude larger than the 16 KiB envelope limit,
+and the two paths need different authorization, sizing and backpressure. Configuration is opt-in and
+all-or-nothing. Without `video_tracks` the bridge is byte-identical to a DataChannel-only
+deployment: offers containing `m=video` are rejected, `video.*` operations stay unknown, and
+`welcome` gains no `video` key.
+
+### Negotiation
+
+The browser remains the offerer. It may include receive-only `m=video` sections alongside the single
+`m=application` section, bounded by `limits.video.max_slots_per_peer`. Each section must declare
+`a=recvonly` and offer an H.264 payload type with `packetization-mode=1` and a `profile-level-id`;
+simulcast, RID, audio and any other media type are refused. The bridge answers `sendonly` and echoes
+the profile the offer named rather than a fixed default. `a=max-message-size` is read only outside
+the video sections so a media attribute cannot alter the DataChannel contract.
+
+### On-demand lifecycle
+
+A negotiated section is a pipe, not a subscription. Watching starts with an explicit
+`video.subscribe` and ends with `video.unsubscribe`, peer closure or loss of authorization. The
+first viewer starts the encoder; the last one leaving stops it after `video.stop_grace_ms`, so a
+reconnect does not restart the pipeline. Viewers of one source share a single encoded stream, and a
+viewer joining mid-stream triggers a keyframe. A slot binds to a track for the session: reusing a
+mid for a different source would change resolution and parameter sets underneath a decoder.
+
+RTP is never queued. Packets are fanned out as they arrive and dropped if a peer cannot take them,
+because a late frame is worth less than the next one. RTCP PLI is forwarded to the encoder as a
+backend-independent keyframe request, rate limited by `video.pli_min_interval_ms` so a failing
+decoder cannot pin the encoder at its most expensive setting.
+
+### Encoder backends
+
+Each track names its backend explicitly. There is no `auto` value, no automatic detection and no
+fallback to another encoder - not as a policy preference but because measurement showed detection
+cannot be made safe: on four Jetson hosts, whether hardware encoding works depended on which
+packages were installed and on a single flag in the carrier board's device tree, and one host
+registered a working-looking element whose device node did not exist.
+
+Consequently every configured backend is probed before the HTTPS listener opens, and the probe
+encodes rather than inspecting a registry. Failure is a startup failure whose local message names
+the configuration path, track, backend and actionable cause; remote clients continue to receive only
+fixed, anonymized classifications. Backends are injected into the media plane, so adding one does
+not change ROS, signaling, routing, authorization or lifecycle code.
+
+GStreamer is a host runtime dependency, like ROS itself: this project neither bundles nor links it,
+and a host that cannot provide the selected backend is an error rather than a reason to fall back.
+
+### Limits and diagnostics
+
+`limits.video` bounds configured tracks, concurrently running encoders, sections per peer, and the
+resolution and frame rate a source may declare. Per-source counters - state, viewers, packets,
+keyframe requests - are available through internal diagnostics only; the unauthenticated health
+endpoint never describes the host.
