@@ -14,6 +14,34 @@ export function numberOption(value: string | undefined, fallback: number): numbe
   return number;
 }
 
+type IceOptions = Readonly<{
+  iceServers: readonly Readonly<{ urls: string }>[];
+  icePortRange?: readonly [number, number];
+}>;
+
+/** Validate deployment ICE settings. Input: process environment; output: Werift peer options. Example: STUN plus 50000-50019 returns one server and the fixed range. */
+export function iceOptions(env: NodeJS.ProcessEnv): IceOptions {
+  const stunUrl = env.BRIDGE_ICE_STUN_URL;
+  if (stunUrl !== undefined && (!/^stuns?:[^\s]+$/.test(stunUrl) || stunUrl.length > 2048)) {
+    throw new Error('invalid_ice_stun_url');
+  }
+
+  // Require both bounds together so deployments cannot silently fall back to random UDP ports.
+  const minimum = env.BRIDGE_ICE_PORT_MIN;
+  const maximum = env.BRIDGE_ICE_PORT_MAX;
+  if ((minimum === undefined) !== (maximum === undefined)) throw new Error('invalid_ice_port_range');
+  if (minimum === undefined || maximum === undefined) {
+    return { iceServers: stunUrl === undefined ? [] : [{ urls: stunUrl }] };
+  }
+
+  const min = numberOption(minimum, 1), max = numberOption(maximum, 1);
+  if (max > 65535 || min >= max) throw new Error('invalid_ice_port_range');
+  return {
+    iceServers: stunUrl === undefined ? [] : [{ urls: stunUrl }],
+    icePortRange: [min, max],
+  };
+}
+
 /** Read a required environment value. Example: env,'BRIDGE_CONFIG' returns a nonempty string; reject missing values without disclosing them. */
 function required(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name];
@@ -65,6 +93,7 @@ export async function launch(env: NodeJS.ProcessEnv, loader: typeof loadModule =
   const publishScopes = (env.BRIDGE_PUBLISH_SCOPES ?? '').split(',').filter(Boolean);
   const args: unknown = JSON.parse(env.BRIDGE_ROS_ARGS ?? '[]');
   if (!Array.isArray(args) || args.some(value => typeof value !== 'string')) throw new Error('invalid_ros_args');
+  const peerOptions = iceOptions(env);
   const settings = { credential, configSource, maxConfigBytes, subscribeTopics, publishScopes,
     timeoutMs: numberOption(env.BRIDGE_NEGOTIATION_TIMEOUT_MS, 30000), maxSdpBytes: numberOption(env.BRIDGE_MAX_SDP_BYTES, 262144),
     requestTimeoutMs: numberOption(env.BRIDGE_REQUEST_TIMEOUT_MS, 10000), routerLimits: {
@@ -78,7 +107,7 @@ export async function launch(env: NodeJS.ProcessEnv, loader: typeof loadModule =
   return startApp(settings, {
     initialize: () => createRclnodejsBackend(rcl, { nodeName: env.BRIDGE_NODE_NAME ?? 'ros_webrtc_gateway', namespace: '/', args,
       spinTimeoutMs, onError }),
-    makePeer: () => new transport.RTCPeerConnection({ iceServers: [] }),
+    makePeer: () => new transport.RTCPeerConnection(peerOptions),
     listen: handler => listenHttps(key, cert, host, port, handler),
     clock: () => performance.now(), onError,
   });
