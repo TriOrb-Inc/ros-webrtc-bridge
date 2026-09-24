@@ -1,26 +1,16 @@
-import { parseDocument } from 'yaml';
 import { binding, checkOutputs } from './binding.js';
-import { ConfigError, positive, record, string } from './validation.js';
+import { ConfigError, positive, readDocument, record, string } from './validation.js';
 import type { BridgeConfig, ConfigOptions } from './types.js';
-export { ConfigError } from './validation.js';
-export type { BridgeConfig, ConfigOptions, TopicBinding } from './types.js';
+export { ConfigError, readDocument } from './validation.js';
+export { parseVideoConfig, VIDEO_BACKENDS, VIDEO_ENCODINGS } from './video.js';
+export type { BridgeConfig, ConfigOptions, TopicBinding, VideoBinding, VideoConfig } from './types.js';
 
 /** Parse startup configuration from YAML and the installed type registry. Example: bridge.yaml returns a frozen BridgeConfig. */
 export function parseBridgeConfig(source: string, options: ConfigOptions): BridgeConfig {
   const maxBytes = positive(options.maxConfigBytes ?? 1048576, 'maxConfigBytes', true);
   const maxTopics = positive(options.maxTopics ?? 256, 'maxTopics', true);
-  if (typeof source !== 'string' || Buffer.byteLength(source, 'utf8') > maxBytes) throw new ConfigError('$', 'invalid document size');
-  // Prevent aliases and custom tags from creating unexpected types or sizes before validation.
-  let value: unknown;
-  try {
-    const doc = parseDocument(source, { uniqueKeys: true, version: '1.2', schema: 'core' });
-    if (doc.errors.length || doc.warnings.length) throw new Error('invalid YAML');
-    value = doc.toJS({ maxAliasCount: 0 });
-  } catch {
-    throw new ConfigError('$', 'invalid YAML; aliases and custom tags are unsupported');
-  }
   // Validate everything before returning so callers cannot publish a partial catalog.
-  const map = record(value, ['version', 'robot_id', 'limits', 'topics'], '$');
+  const map = record(readDocument(source, maxBytes), ['version', 'robot_id', 'limits', 'topics', 'video', 'video_tracks'], '$');
   if (map.version !== 1) throw new ConfigError('version', 'unsupported version');
   const robotId = string(map.robot_id, /^[A-Za-z0-9_-]+$/, 'robot_id');
   const limits = parseLimits(map.limits);
@@ -35,7 +25,7 @@ export function parseBridgeConfig(source: string, options: ConfigOptions): Bridg
 
 /** Validate required capacities. Input: limits map; output: frozen camelCase values. Example: max_message_bytes:16384 becomes maxMessageBytes:16384. */
 function parseLimits(value: unknown): BridgeConfig['limits'] {
-  const map = record(value, ['max_peers', 'max_message_bytes', 'max_peer_queue_bytes', 'max_channel_buffered_bytes'], 'limits');
+  const map = record(value, ['max_peers', 'max_message_bytes', 'max_peer_queue_bytes', 'max_channel_buffered_bytes', 'video'], 'limits');
   const maxPeers = positive(map.max_peers, 'limits.max_peers', true);
   const maxMessageBytes = positive(map.max_message_bytes, 'limits.max_message_bytes', true);
   const maxPeerQueueBytes = positive(map.max_peer_queue_bytes, 'limits.max_peer_queue_bytes', true);
