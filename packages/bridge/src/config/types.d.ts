@@ -47,6 +47,8 @@ export interface VideoBinding {
   readonly rosType: string;
   readonly rosQos: Readonly<RosQos>;
   readonly input: Readonly<VideoInput>;
+  /** Encoded geometry when it differs from the input; absent means encode at the input size. */
+  readonly output?: Readonly<{ width: number; height: number }>;
   readonly encoder: Readonly<VideoEncoder>;
   readonly access: Readonly<{ subscribeScope: string }>;
 }

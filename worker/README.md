@@ -42,9 +42,21 @@ tidiness: L4T encoder elements print progress on stdout, and one such line reach
 read as malformed control output and fails the source. Moving the channel makes the contract hold
 whatever a backend does.
 
+**Scaling happens before the encoder, not after.** A track's `output` geometry is applied by the
+chain itself - `videoscale` for the software backend, `nvvidconv` for L4T, which resizes in hardware
+and is already in that chain. Encoding a smaller picture is also cheaper, so the cost is negative.
+
+**The worker's ROS node takes no remaps.** A track's `ros_topic` is the name it subscribes to, and
+nothing rewrites it. The bridge's own node applies the deployment's ROS arguments; the worker
+deliberately does not, so a track names one topic and means it.
+
 **Frames are rejected, never reinterpreted.** A frame whose encoding, geometry, endianness or step
 differs from the negotiated caps is counted and dropped. Guessing would send a viewer a corrupted
 picture that looks like a decoder fault.
+
+**The probe warns about the encoded level.** It parses the level the encoder actually produced and
+says so on stderr when it exceeds the level browsers commonly offer, naming `output` as the way down.
+Measuring beats computing it from the specification tables, because encoders differ.
 
 **The probe proves the encoder, not the configuration.** It pushes blank frames through the real
 pipeline, requires at least one RTP packet, and parses the SPS to check that the encoder produced the

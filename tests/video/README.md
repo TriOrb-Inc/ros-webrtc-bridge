@@ -96,7 +96,7 @@ the replay backend by default, so it needs no GPU; set `VIDEO_BACKEND` to soak a
 | `VIDEO_DISTROS` | `jazzy` | Comma-separated `humble` and/or `jazzy` |
 | `VIDEO_PLATFORM` | Host architecture | `linux/amd64` or `linux/arm64` |
 | `VIDEO_BUILD_TIMEOUT_MS` | `1200000` | Image build deadline |
-| `VIDEO_PEER_WIDTH` / `_HEIGHT` / `_FRAMERATE` / `_ENCODING` | `320` / `240` / `15` / `rgb8` | Mock publisher output |
+| `VIDEO_PEER_WIDTH` / `_HEIGHT` / `_FRAMERATE` / `_ENCODING` | `320` / `240` / `15` / `rgb8` | Mock publisher geometry. Applied to the publisher and to the track configuration together, so the two cannot disagree. The replay backend still sends its recording, so only a real encoder changes what the browser decodes |
 | `VIDEO_BACKEND` | `fixture` | `fixture`, `openh264` or `l4t_v4l2`. Anything but `fixture` runs the real media worker |
 | `VIDEO_MODE` | `verify` | `load` runs the multi-viewer and soak scenario instead |
 | `VIDEO_VIEWERS` / `VIDEO_CYCLES` / `VIDEO_HOLD_MS` | `4` / `6` / `1500` | Load-mode workload |

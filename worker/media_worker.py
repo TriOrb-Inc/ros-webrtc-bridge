@@ -54,6 +54,20 @@ PROFILE_IDC = {'constrained_baseline': 66, 'main': 77, 'high': 100}
 # track fail the probe that checks the encoder produced what was asked for.
 L4T_PROFILE = {'constrained_baseline': 0, 'main': 2, 'high': 4}
 
+# The H.264 level browsers put in their offers. Chromium offers 3.1 (1280x720 at 30 fps); anything
+# larger encodes above it, which is worth telling the operator about even though decoders are lenient.
+BROWSER_LEVEL_IDC = 31
+
+
+def _scaled_caps(spec):
+    """Caps fragment selecting the encoded geometry.
+
+    @param spec: Validated track specification.
+    @returns: e.g. ',width=1280,height=720', or '' when the track encodes at its input size.
+    """
+    output = spec.get('output')
+    return f',width={output["width"]},height={output["height"]}' if output else ''
+
 
 def l4t_v4l2(spec):
     """Build the L4T V4L2 encoder chain.
@@ -64,7 +78,9 @@ def l4t_v4l2(spec):
     encoder = spec['encoder']
     # Only properties present on every platform carrying this element are set unconditionally;
     # maxperf-enable for instance exists on Orin but not on Thor.
-    return ('videoconvert ! video/x-raw,format=I420 ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 '
+    # nvvidconv resizes in hardware, so scaling this chain costs nothing extra.
+    return ('videoconvert ! video/x-raw,format=I420 ! nvvidconv '
+            f'! video/x-raw(memory:NVMM),format=I420{_scaled_caps(spec)} '
             f'! nvv4l2h264enc bitrate={encoder["bitrate"]} iframeinterval={encoder["keyframe_interval"]} '
             f'idrinterval={encoder["keyframe_interval"]} profile={L4T_PROFILE[encoder["profile"]]} '
             'insert-sps-pps=true')
@@ -77,7 +93,8 @@ def openh264(spec):
     @returns: GStreamer chain description. Bitrate is in bits per second for this element.
     """
     encoder = spec['encoder']
-    return ('videoconvert ! video/x-raw,format=I420 '
+    scale = '! videoscale ' if spec.get('output') else ''
+    return (f'videoconvert {scale}! video/x-raw,format=I420{_scaled_caps(spec)} '
             f'! openh264enc bitrate={encoder["bitrate"]} gop-size={encoder["keyframe_interval"]} complexity=low')
 
 
@@ -229,6 +246,17 @@ def probe(spec):
         if profile_idc != wanted:
             raise RuntimeError(f'encoder produced profile_idc={profile_idc} but '
                                f'{spec["encoder"]["profile"]} ({wanted}) was requested')
+        if level_idc > BROWSER_LEVEL_IDC:
+            # Not an error: browsers commonly decode above what they offered, and the real-camera
+            # runs behind this project did exactly that. But nothing else would ever tell an
+            # operator, so say it once, at startup, with the way out.
+            image = spec['input']
+            geometry = spec.get('output') or image
+            print(f'video track encodes at level {level_idc / 10:.1f} '
+                  f'({geometry["width"]}x{geometry["height"]}@{image["framerate"]}), above the level '
+                  f'{BROWSER_LEVEL_IDC / 10:.1f} browsers commonly offer. A peer negotiating that level '
+                  'is not required to decode this stream; set output.width/output.height to scale down.',
+                  file=sys.stderr, flush=True)
         return {'profile_idc': profile_idc, 'level_idc': level_idc,
                 'profile_level_id': f'{profile_idc:02x}{profile_iop:02x}{level_idc:02x}'}
     finally:
@@ -271,7 +299,9 @@ def run(track, spec, rtp):
         rtp.flush()
 
     encoder = Encoder(spec, write)
-    rclpy.init(args=spec.get('ros_args') or None)
+    # Video tracks name ROS topics directly: the deployment's remaps are deliberately not applied
+    # here, so a track's `ros_topic` is the name this worker subscribes to and nothing else.
+    rclpy.init()
     node = rclpy.create_node(f'ros_webrtc_video_{track}')
     qos = spec['ros_qos']
     profile = QoSProfile(

@@ -165,3 +165,24 @@ test('validates every shared timing', () => {
     rejects(value => { value.video[key] = 0; }, `video.${key}`);
   }
 });
+
+test('scales to an explicit output geometry when one is configured', () => {
+  // Encoding at the input size is the default; an explicit output is how a deployment keeps the
+  // encoded H.264 level within what browsers offer.
+  const value = root(value => { value.video_tracks.front.output = { width: 1280, height: 720 }; });
+  const video = parseVideoConfig(JSON.stringify(value), topicsOf(value));
+  assert.deepEqual(video?.tracks[0].output, { width: 1280, height: 720 });
+  const plain = root();
+  assert.equal(parseVideoConfig(JSON.stringify(plain), topicsOf(plain))?.tracks[0].output, undefined);
+});
+
+test('bounds the output geometry', () => {
+  rejects(value => { value.video_tracks.front.output = { width: 4096, height: 720 }; }, 'video_tracks.front.output');
+  rejects(value => { value.video_tracks.front.output = { width: 1280, height: 4096 }; }, 'video_tracks.front.output');
+  // H.264 has no representation for an odd axis, so a size that cannot be encoded is refused rather
+  // than silently rounded to something the operator did not choose.
+  rejects(value => { value.video_tracks.front.output = { width: 1281, height: 720 }; }, 'video_tracks.front.output');
+  rejects(value => { value.video_tracks.front.output = { width: 1280, height: 721 }; }, 'video_tracks.front.output');
+  rejects(value => { value.video_tracks.front.output = { width: 1280 }; }, 'video_tracks.front.output.height');
+  rejects(value => { value.video_tracks.front.output = { width: 1280, height: 720, fit: 'contain' }; }, 'video_tracks.front.output.fit');
+});

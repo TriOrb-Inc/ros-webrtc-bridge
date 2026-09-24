@@ -109,7 +109,11 @@ export class VideoRouter {
     const index = this.free.findIndex(candidate => profileIdc(candidate.profileLevelId) === wanted);
     if (index === -1) throw new Error('video_profile_mismatch');
     const [slot] = this.free.splice(index, 1);
-    const entry = { slot, watching: false, viewer: this.viewer(track, slot) };
+    const entry: { slot: VideoSlot; viewer: Viewer; watching: boolean } = { slot, watching: false, viewer: undefined! };
+    // A failed source has already been released by the media plane, so this peer is attached to
+    // nothing. Leaving it marked as watching would make its next subscribe a silent no-op: the peer
+    // would be told `video.subscribed` and never receive a frame.
+    entry.viewer = this.viewer(track, slot, () => { entry.watching = false; });
     // A decoder recovering from loss asks the sender, not the source; forward it to the encoder.
     slot.onKeyframeRequest(() => { if (entry.watching) this.access.requestKeyframe(track); });
     this.bound.set(track, entry);
@@ -124,13 +128,20 @@ export class VideoRouter {
     this.access.detach(track, entry.viewer);
   }
 
-  /** Build the sink handed to the media plane. Inputs: track name and slot; returns a viewer. */
-  private viewer(track: string, slot: VideoSlot): Viewer {
+  /**
+   * Build the sink handed to the media plane.
+   * @param track Configured track name. @param slot Bound slot. @param failed Called when the source fails.
+   * @returns The viewer the media plane writes to.
+   */
+  private viewer(track: string, slot: VideoSlot, failed: () => void): Viewer {
     return {
       /** Hand one RTP packet to the peer. Input: complete packet; returns void. */
       write: (packet: Buffer) => slot.write(packet),
       /** Report a lifecycle change without disclosing why. Input: state; returns void. */
-      state: (state: VideoState) => this.send({ v: 1, op: 'video.state', track, mid: slot.mid, state }),
+      state: (state: VideoState) => {
+        if (state === 'failed') failed();
+        this.send({ v: 1, op: 'video.state', track, mid: slot.mid, state });
+      },
     };
   }
 }

@@ -43,3 +43,8 @@ of the three is present; configuring only some of them is rejected rather than h
   scope it was not granted.
 - One ROS topic feeds at most one source, and a topic exposed through `topics` cannot also be a video
   source: the two planes have different size limits, authorization and queue behaviour.
+
+Video tracks are parsed separately by `parseVideoConfig`, and their `ros_topic` is used as written:
+`options.resolveTopic` applies to `topics` only, so a deployment's ROS remaps do not move a video
+source. A track may name an `output` geometry, which is the size it encodes at; omitting it encodes
+at the input size. Both axes must be even, because H.264 has no representation for an odd one.

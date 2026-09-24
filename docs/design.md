@@ -367,6 +367,17 @@ reconnect does not restart the pipeline. Viewers of one source share a single en
 viewer joining mid-stream triggers a keyframe. A slot binds to a track for the session: reusing a
 mid for a different source would change resolution and parameter sets underneath a decoder.
 
+A track encodes at its input size unless it names an `output` geometry, which the media plane scales
+to before encoding. Scaling belongs here because nothing else can do it: the ROS source publishes
+what the camera produces, and the H.264 level is a property of the encoded size. A 1600x1300 source
+encodes at level 4.2; browsers offer level 3.1, which covers 1280x720 at 30 fps. The startup probe
+measures the level the encoder actually produced and says so when it exceeds that, naming `output` as
+the way down. It is a warning rather than a rejection because decoders are in practice lenient, and
+refusing would stop streams that work today.
+
+Unlike `topics`, a video track's `ros_topic` is the name the worker subscribes to directly: the
+deployment's ROS remaps are not applied to it.
+
 `limits.video.max_pipelines` bounds how many encoders run at once, counting a source still inside its
 grace window because its encoder is still running. Reaching it refuses the subscription rather than
 starting another encoder, since quietly exceeding a configured resource limit is worse than a peer

@@ -165,10 +165,9 @@ export async function launch(env: NodeJS.ProcessEnv, loader: typeof loadModule =
   const args: unknown = JSON.parse(env.BRIDGE_ROS_ARGS ?? '[]');
   if (!Array.isArray(args) || args.some(value => typeof value !== 'string')) throw new Error('invalid_ros_args');
   // Every GStreamer backend runs in the same worker program; which one it builds comes from the
-  // track's configuration, so adding a backend never changes this wiring. The worker gets the same
-  // ROS arguments as the bridge, or it would resolve different topic names from the same deployment.
+  // track's configuration, so adding a backend never changes this wiring.
   if (env.BRIDGE_VIDEO_WORKER !== undefined) {
-    const factory = createWorkerFactory(workerPort(env.BRIDGE_VIDEO_WORKER_COMMAND ?? 'python3', [env.BRIDGE_VIDEO_WORKER]), args as string[]);
+    const factory = createWorkerFactory(workerPort(env.BRIDGE_VIDEO_WORKER_COMMAND ?? 'python3', [env.BRIDGE_VIDEO_WORKER]));
     for (const backend of ['l4t_v4l2', 'openh264']) videoBackends[backend] = factory;
   }
   const settings = { credential, configSource, maxConfigBytes, subscribeTopics, publishScopes, videoScopes,

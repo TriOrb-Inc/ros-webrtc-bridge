@@ -19,8 +19,8 @@ export class VideoSource {
   private lastKeyframeAt = Number.NEGATIVE_INFINITY;
   private packets = 0;
   private keyframeRequests = 0;
-  // True from the moment a stop begins until the encoder has actually been released.
-  private releasing = false;
+  // Pending while an encoder is being released; a restart waits on it so one track never holds two.
+  private release?: Promise<void>;
 
   /** Own one validated binding. Input: VideoSourceOptions with injected clock and scheduler; returns a source. */
   constructor(options: VideoSourceOptions) {
@@ -34,10 +34,10 @@ export class VideoSource {
    * concurrency bound that ignored it would let one more start than the host was configured for.
    */
   get running(): boolean {
-    // `releasing` covers the window after the phase is terminal but the worker has not exited: a
-    // wedged one is held for the forced-stop interval, and that is exactly when letting another
+    // The release window counts too: after the phase is terminal the worker has not necessarily
+    // exited, and a wedged one is held for the forced-stop interval - exactly when letting another
     // encoder start would exceed the bound the host was configured for.
-    return this.releasing || (this.phase !== 'idle' && this.phase !== 'failed');
+    return this.release !== undefined || (this.phase !== 'idle' && this.phase !== 'failed');
   }
 
   /** Report counters for internal diagnostics. No input; returns a snapshot without paths or payloads. */
@@ -108,6 +108,11 @@ export class VideoSource {
     this.notify();
     // An encoder that never emits is indistinguishable from a hung one; bound the wait explicitly.
     this.cancelStart = this.options.schedule(() => { void this.finish('failed'); }, this.options.settings.startTimeoutMs);
+    // The phase above already claims this source, so a second viewer will not start a third encoder
+    // while this waits for the previous one to finish going away. Only await when there is something
+    // to wait for: awaiting nothing would still yield, and the encoder would no longer start in the
+    // same turn as the subscription that asked for it.
+    if (this.release !== undefined) await this.release;
     const source = this.options.create(this.options.binding);
     this.source = source;
     try {
@@ -145,10 +150,12 @@ export class VideoSource {
     this.source = undefined;
     this.phase = phase;
     this.notify();
-    // Stop must not leave a child process behind even when it reports a failure.
-    this.releasing = source !== undefined;
-    try { await source?.stop(); } catch { this.options.onError(); }
-    finally { this.releasing = false; }
+    // Stop must not leave a child process behind even when it reports a failure. Guarded because a
+    // second finish - a start deadline and a grace window can expire in the same turn - would
+    // otherwise clear the release the first one is still waiting on.
+    if (source === undefined) return;
+    this.release = source.stop().catch(() => { this.options.onError(); });
+    try { await this.release; } finally { this.release = undefined; }
   }
 
   /** Tell every viewer the current phase. No input; returns void. Notification callbacks must not throw. */

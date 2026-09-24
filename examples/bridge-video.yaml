@@ -55,12 +55,20 @@ video_tracks:
       durability: volatile
       history: keep_last
       depth: 1
-    # Frames whose encoding or geometry differ from this are rejected, never rescaled.
+    # The contract with the source: a frame whose encoding or geometry differs is rejected, not
+    # reinterpreted. This is what the camera publishes, not what gets encoded.
     input:
       encoding: rgb8
       width: 1280
       height: 720
       framerate: 30
+    # Optional. The geometry frames are scaled to before encoding; omit it to encode at the input
+    # size. The H.264 level follows the encoded size, and browsers offer level 3.1, which covers
+    # 1280x720 at 30 fps - a larger source encodes above what the peer negotiated. Both axes must be
+    # even. The startup probe measures the level produced and warns when it exceeds 3.1.
+    output:
+      width: 1280
+      height: 720
     encoder:
       codec: h264
       backend: l4t_v4l2

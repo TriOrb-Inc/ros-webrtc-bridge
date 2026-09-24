@@ -160,7 +160,7 @@ test('fails the source when the encoder reports a failure or refuses to start', 
   assert.equal(refused.errors(), 1);
 });
 
-test('retries only when somebody asks again', () => {
+test('retries only when somebody asks again', async () => {
   const h = harness();
   const watcher = viewer();
   h.service.attach('front', watcher.sink);
@@ -170,7 +170,39 @@ test('retries only when somebody asks again', () => {
   h.time.advance(60_000);
   assert.equal(h.encoder.state.started, 1);
   h.service.attach('front', viewer().sink);
+  // The replacement waits for the failed encoder to be released, so it starts on the next turn
+  // rather than alongside the one it replaces.
+  await settle();
   assert.equal(h.encoder.state.started, 2);
+});
+
+test('does not start a replacement while the previous encoder is still going away', async () => {
+  // A worker holding a wedged pipeline is kept alive for the forced-stop interval. Starting its
+  // replacement then would put two encoders on one track, past the configured bound.
+  let release: (() => void) | undefined;
+  let packet: ((value: Buffer) => void) | undefined;
+  const slow: MediaSourceFactory = () => ({
+    async probe() {}, async start(onPacket) { state.started++; packet = onPacket; }, requestKeyframe() {},
+    async stop() { await new Promise<void>(resolve => { release = () => { state.stopped++; resolve(); }; }); },
+  });
+  const state = { started: 0, stopped: 0 };
+  const time = clockwork();
+  const service = new MediaService({ config: videoConfig([binding()], { maxPipelines: 1 }),
+    backends: { fixture: slow }, clock: time.clock, schedule: time.schedule, onError: () => {} });
+  const first = viewer(), second = viewer();
+  service.attach('front', first.sink);
+  await settle();
+  packet?.(Buffer.from([1]));            // reaching `active` cancels the start deadline
+  service.detach('front', first.sink);
+  time.advance(5000);                    // only the grace window fires
+  await settle();
+  service.attach('front', second.sink);
+  await settle();
+  assert.equal(state.started, 1, 'the replacement waits for the release');
+  release!();
+  await settle();
+  assert.equal(state.started, 2, 'and starts once the old encoder is gone');
+  assert.equal(state.stopped, 1);
 });
 
 test('isolates one failing viewer from the others', () => {
@@ -254,7 +286,7 @@ test('counts delivered packets and keyframe requests for diagnostics', () => {
   assert.deepEqual(h.service.diagnostics, [{ track: 'front', backend: 'fixture', state: 'active', viewers: 1, packets: 2, keyframeRequests: 1 }]);
 });
 
-test('runs no more encoders at once than the configuration allows', () => {
+test('runs no more encoders at once than the configuration allows', async () => {
   // `max_pipelines` is what protects the GPU and the host, and subscriptions to different tracks
   // arrive independently, so nothing else can apply the bound.
   const tracks = ['front', 'rear', 'mast'].map(name => binding({ name, rosTopic: `/camera/${name}/image_raw` }));
@@ -270,13 +302,14 @@ test('runs no more encoders at once than the configuration allows', () => {
   h.service.detach('front', watchers[0].sink);
   assert.throws(() => { h.service.attach('mast', watchers[2].sink); }, new Error('video_pipeline_limit'));
 
-  // Once it really stops, the slot is free again.
+  // Once it really stops - released, not merely past its grace window - the slot is free again.
   h.time.advance(5000);
+  await settle();
   h.service.attach('mast', watchers[2].sink);
   assert.equal(h.encoder.state.started, 3);
 });
 
-test('lets a peer retry a track the media plane refused', () => {
+test('lets a peer retry a track the media plane refused', async () => {
   // A refused attachment must not leave the source counting a viewer it never accepted.
   const tracks = [binding(), binding({ name: 'rear', rosTopic: '/camera/rear/image_raw' })];
   const h = harness(encoder(), tracks, { maxPipelines: 1 });
@@ -285,6 +318,7 @@ test('lets a peer retry a track the media plane refused', () => {
   assert.throws(() => { h.service.attach('rear', second.sink); }, new Error('video_pipeline_limit'));
   h.service.detach('front', first.sink);
   h.time.advance(5000);
+  await settle();
   h.service.attach('rear', second.sink);
   assert.equal(h.encoder.state.started, 2);
 });

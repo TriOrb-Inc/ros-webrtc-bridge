@@ -9,10 +9,6 @@ import type { BridgeConfig, VideoBinding, VideoConfig, VideoLimits, VideoSetting
 export const VIDEO_ENCODINGS = Object.freeze({ rgb8: 'RGB', bgr8: 'BGR', mono8: 'GRAY8' } as const);
 
 /**
- * Encoder backends selectable per track, with the profiles and bitrate range each one supports.
- * Selection is always explicit in configuration: this table validates a choice, it never makes one.
- */
-/**
  * H.264 `profile_idc` for each configured profile name.
  *
  * The first byte of an SDP `profile-level-id` carries this, which is how a negotiated section and a
@@ -20,6 +16,10 @@ export const VIDEO_ENCODINGS = Object.freeze({ rgb8: 'RGB', bgr8: 'BGR', mono8: 
  */
 export const PROFILE_IDC: Readonly<Record<string, number>> = Object.freeze({ constrained_baseline: 66, main: 77, high: 100 });
 
+/**
+ * Encoder backends selectable per track, with the profiles and bitrate range each one supports.
+ * Selection is always explicit in configuration: this table validates a choice, it never makes one.
+ */
 export const VIDEO_BACKENDS = Object.freeze({
   fixture: { profiles: ['constrained_baseline'], bitrate: [1, 100_000_000] },
   l4t_v4l2: { profiles: ['constrained_baseline', 'main', 'high'], bitrate: [64_000, 100_000_000] },
@@ -54,7 +54,7 @@ function videoBinding(name: string, value: unknown, limits: VideoLimits): VideoB
   // underscores. Allowing a hyphen here would pass the startup probe, which creates no node, and
   // fail only once the first viewer subscribed.
   string(name, /^[A-Za-z][A-Za-z0-9_]*$/, path);
-  const map = record(value, ['ros_topic', 'ros_type', 'ros_qos', 'input', 'encoder', 'access'], path);
+  const map = record(value, ['ros_topic', 'ros_type', 'ros_qos', 'input', 'output', 'encoder', 'access'], path);
   // A video source is one ROS subscription; unlike `topics` the key is a short public label, so the
   // ROS name is always explicit.
   const rosTopic = topicName(map.ros_topic, `${path}.ros_topic`);
@@ -66,6 +66,7 @@ function videoBinding(name: string, value: unknown, limits: VideoLimits): VideoB
   return Object.freeze({
     name, rosTopic, rosType, rosQos: qos,
     input: videoInput(map.input, limits, path),
+    ...(map.output === undefined ? {} : { output: videoOutput(map.output, limits, path) }),
     encoder: videoEncoder(map.encoder, path),
     // Omitting the scope is not "public": the caller denies every scope it was not granted.
     access: Object.freeze({ subscribeScope: string(access.subscribe_scope, /^[A-Za-z0-9_.:-]+$/, `${path}.access.subscribe_scope`) }),
@@ -90,6 +91,30 @@ function videoInput(value: unknown, limits: VideoLimits, path: string): VideoBin
     throw new ConfigError(`${path}.input`, 'exceeds configured video limits');
   }
   return Object.freeze({ encoding, width, height, framerate });
+}
+
+/**
+ * Validate the encoded geometry a track scales its frames to.
+ *
+ * Scaling is the media plane's job because nothing else can do it: the ROS source publishes what the
+ * camera produces, and an H.264 level is a property of the encoded size. A 1600x1300 source encodes
+ * at level 4.2, which a browser offering level 3.1 is not required to decode; scaling to 1280x720
+ * brings it to 3.1.
+ *
+ * @param value Raw map, e.g. `{width:1280, height:720}`.
+ * @param limits Validated capacity limits, which bound the output as well as the input.
+ * @param path Owning configuration path, e.g. `video_tracks.front`.
+ * @returns Frozen output geometry.
+ */
+function videoOutput(value: unknown, limits: VideoLimits, path: string): NonNullable<VideoBinding['output']> {
+  const map = record(value, ['width', 'height'], `${path}.output`);
+  const width = positive(map.width, `${path}.output.width`, true);
+  const height = positive(map.height, `${path}.output.height`, true);
+  if (width > limits.maxWidth || height > limits.maxHeight) throw new ConfigError(`${path}.output`, 'exceeds configured video limits');
+  // H.264 codes in 16x16 macroblocks over a chroma-subsampled picture, so an odd axis has no
+  // representation. Rejecting is better than silently rounding a size the operator chose.
+  if (width % 2 !== 0 || height % 2 !== 0) throw new ConfigError(`${path}.output`, 'width and height must be even');
+  return Object.freeze({ width, height });
 }
 
 /**

@@ -54,6 +54,12 @@ async function residentMiB(run: (name: string, executable: string, args: string[
   return Number(match[1]) * unit;
 }
 
+// Publisher geometry, shared by the mock and the track configuration so the two cannot disagree.
+const peerWidth = count(process.env.VIDEO_PEER_WIDTH, 320, 3840);
+const peerHeight = count(process.env.VIDEO_PEER_HEIGHT, 240, 2160);
+const peerFramerate = count(process.env.VIDEO_PEER_FRAMERATE, 15, 240);
+const peerEncoding = process.env.VIDEO_PEER_ENCODING ?? 'rgb8';
+
 // A soak run cycles far more than a behavioural one, so it gets its own budget rather than the
 // single-run timeout.
 const loadTimeoutMs = parseTimeoutMs(process.env.VIDEO_LOAD_TIMEOUT_MS, 600000, 60000, 7200000);
@@ -113,36 +119,50 @@ async function verify(distro: 'humble' | 'jazzy', backend: Backend, mode: 'verif
     // does not carry the multicast that discovery defaults to, so the two containers name each other
     // and discover by unicast: the isolation is the point, and giving it up to reach the host graph
     // would be worse than configuring discovery.
+    // The publisher overrides are documented, so they have to reach the publisher and the track
+    // configuration together; forwarding one without the other makes the run test something else.
+    const peerEnv = ['--env', `VIDEO_PEER_WIDTH=${peerWidth}`, '--env', `VIDEO_PEER_HEIGHT=${peerHeight}`,
+      '--env', `VIDEO_PEER_FRAMERATE=${peerFramerate}`, '--env', `VIDEO_PEER_ENCODING=${peerEncoding}`];
     const rosArgs = ['--network', network, '--label', `ros-webrtc-test=${suffix}`, '--env', 'ROS_DOMAIN_ID=74',
       '--env', 'ROS_TEST_TIMEOUT_SECONDS=360', '--env', 'RMW_IMPLEMENTATION=rmw_fastrtps_cpp',
-      '--env', 'ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET', '--env', `ROS_STATIC_PEERS=${peer};${gateway}`];
+      '--env', 'ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET'];
+    // Only the gateway names the other side, and only because it starts second: Fast DDS resolves a
+    // static peer when the node is created, and a name that does not resolve yet is fatal rather
+    // than merely undiscovered. One side announcing itself is enough for the other to answer.
+    const discovery = ['--env', `ROS_STATIC_PEERS=${peer}`];
 
     // The independent publisher is a real ROS node: nothing here shares the bridge's own code.
     owned.push(peer);
-    await run('peer-start', 'docker', ['run', ...platformArgs, '--init', '-d', '--name', peer, ...rosArgs, image,
+    await run('peer-start', 'docker', ['run', ...platformArgs, '--init', '-d', '--name', peer, ...rosArgs, ...peerEnv, image,
       'bash', '-lc', 'source /opt/ros/${ROS_DISTRO}/setup.bash && source /bridge/test_interfaces/install/setup.bash && exec python3 /bridge/tests/ros/video_peer.py']);
 
     // The replay backend and the real encoders need different configuration and different wiring,
     // and only the L4T one needs anything from the host.
     const replay = backend === 'fixture';
-    let configPath = '/bridge/tests/ros/connection-video.yaml';
-    if (!replay) {
-      // The committed hardware configuration names one backend. Substituting the requested one keeps
-      // a single source of truth; without it a run asked for `openh264` would start NVENC and write
-      // the result under an `openh264` evidence filename, which is worse than failing.
-      const template = await readFile(resolve('tests/ros/hardware-video.yaml'), 'utf8');
-      const configured = template.replace('backend: l4t_v4l2', `backend: ${backend}`);
-      assert.ok(backend === 'l4t_v4l2' || configured !== template, 'hardware configuration no longer names a substitutable backend');
-      await writeFile(join(input, 'video.yaml'), configured, { mode: 0o644 });
-      configPath = '/run/bridge/video.yaml';
-    }
+    // The committed configuration is the single source of truth; the run substitutes what it was
+    // asked for. Without this a run asked for `openh264` would start NVENC and write the result
+    // under an `openh264` evidence filename, and the documented publisher overrides would be
+    // silently ignored while the evidence claimed they applied.
+    const template = await readFile(resolve('tests/ros', replay ? 'connection-video.yaml' : 'hardware-video.yaml'), 'utf8');
+    let configured = template.replace('backend: l4t_v4l2', `backend: ${backend}`);
+    assert.ok(replay || backend === 'l4t_v4l2' || configured !== template,
+      'hardware configuration no longer names a substitutable backend');
+    const geometry = /encoding: \w+, width: \d+, height: \d+, framerate: \d+/g;
+    // Assert the shape, not that the text changed: with the default overrides the substitution is
+    // a no-op, and a silent miss here is exactly the failure this replaces.
+    assert.ok(geometry.test(configured), 'configuration no longer states the input geometry in one line');
+    geometry.lastIndex = 0;
+    configured = configured.replace(geometry,
+      `encoding: ${peerEncoding}, width: ${peerWidth}, height: ${peerHeight}, framerate: ${peerFramerate}`);
+    await writeFile(join(input, 'video.yaml'), configured, { mode: 0o644 });
+    const configPath = '/run/bridge/video.yaml';
     const encoderArgs = replay
       ? ['--env', 'BRIDGE_VIDEO_FIXTURE=/bridge/tests/fixtures/video/h264-320x240.rtp']
       : ['--env', 'BRIDGE_VIDEO_WORKER=/bridge/worker/media_worker.py',
         ...(backend === 'l4t_v4l2' ? hardwareArgs() : [])];
 
     owned.push(gateway);
-    await run('gateway-start', 'docker', ['run', ...platformArgs, '--init', '-d', '--name', gateway, ...rosArgs,
+    await run('gateway-start', 'docker', ['run', ...platformArgs, '--init', '-d', '--name', gateway, ...rosArgs, ...discovery,
       '-v', `${input}:/run/bridge:ro`, '--env', 'BRIDGE_CREDENTIAL',
       '--env', `BRIDGE_CONFIG=${configPath}`, '--env', 'BRIDGE_TLS_KEY=/run/bridge/key.pem',
       '--env', 'BRIDGE_TLS_CERT=/run/bridge/cert.pem', '--env', 'BRIDGE_HOST=0.0.0.0', '--env', 'BRIDGE_PORT=7443',
