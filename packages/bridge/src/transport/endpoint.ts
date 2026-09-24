@@ -1,7 +1,8 @@
 import { positiveLimit } from '../session/validation.js';
+import { parseOffer } from './sdp.js';
 import type { Channel } from '../router/types.js';
-import type { DataChannel, EndpointOptions, RouterPort } from './types.js';
-export type { Peer, EndpointOptions } from './types.js';
+import type { DataChannel, EndpointOptions, RouterPort, VideoSlot } from './types.js';
+export type { Peer, EndpointOptions, VideoPort, VideoSlot } from './types.js';
 
 const labels = ['ros.control.v1', 'ros.reliable.v1', 'ros.realtime.v1'];
 
@@ -17,6 +18,7 @@ export class WebRtcEndpoint {
   private timer?: ReturnType<typeof setTimeout>;
   private cancel?: () => void;
   private maxMessageBytes: number;
+  private readonly slots: VideoSlot[] = [];
 
   /** Fix finite limits and the peer. Input: options; returns an endpoint. Example: maxMessageBytes=16384. */
   constructor(options: EndpointOptions) {
@@ -31,21 +33,25 @@ export class WebRtcEndpoint {
     }));
   }
 
+  /** Expose negotiated video slots to the router. No input; returns one entry per accepted m=video section. */
+  get videoSlots(): readonly VideoSlot[] { return this.slots; }
+
   /** Return an answer after ICE gathering completes. Input: offer; returns an answer. Example: application SDP to application SDP. */
   async answer(offer: { type: 'offer'; sdp: string }): Promise<{ type: string; sdp: string }> {
     if (this.used || this.closed) throw new Error('endpoint_unavailable');
     this.used = true;
     try {
       if (offer.type !== 'offer' || typeof offer.sdp !== 'string' || Buffer.byteLength(offer.sdp) > this.options.maxSdpBytes) throw new Error('invalid_offer');
-      const media = offer.sdp.match(/^m=\S+/gm);
-      if (media?.length !== 1 || media[0] !== 'm=application') throw new Error('datachannel_only');
+      const video = this.options.video;
+      const shape = parseOffer(offer.sdp, video?.maxSlots ?? 0);
       // Respect the peer's advertised receive maximum. SDP omission means 65536; zero means unlimited.
-      const limits = [...offer.sdp.matchAll(/^a=max-message-size:(\d+)\r?$/gm)];
-      const advertised = limits.length ? Number(limits[0][1]) : 65536;
-      if (limits.length > 1 || !Number.isSafeInteger(advertised)) throw new Error('invalid_message_limit');
+      const advertised = shape.maxMessageBytes ?? 65536;
       if (advertised !== 0) this.maxMessageBytes = Math.min(this.maxMessageBytes, advertised);
+      // Create send-only transceivers before applying the offer so each maps to its m-line in order.
+      // Without a media plane the parser already refused every video section, so nothing runs here.
+      if (video !== undefined) for (const offered of shape.video) this.slots.push(video.addSlot(offered));
       this.router = this.options.makeRouter((channel, bytes) => this.send(channel, bytes), this.maxMessageBytes,
-        () => queueMicrotask(() => { void this.close(); }));
+        () => queueMicrotask(() => { void this.close(); }), this.slots);
       // Bound gathering and DTLS/DataChannel establishment by the same overall deadline.
       const timeout = new Promise<never>((_, reject) => {
         this.cancel = () => reject(new Error('endpoint_closed'));
@@ -77,6 +83,9 @@ export class WebRtcEndpoint {
     for (const subscription of this.subscriptions) subscription.unSubscribe();
     // Close remaining peers despite cleanup failures, revoking sessions first.
     try { this.router?.close(); } catch { this.options.onError(); }
+    // Release media before the PeerConnection: a track still writing RTP into a closing transport
+    // would surface as an anonymous transport error rather than an ordinary shutdown.
+    for (const slot of this.slots.splice(0)) { try { slot.stop(); } catch { this.options.onError(); } }
     this.channels.clear();
     let deadline: ReturnType<typeof setTimeout>;
     const timeout = new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(new Error('close_timeout')), this.options.timeoutMs); });
