@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:https';
 import { createSecureContext } from 'node:tls';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { isIP } from 'node:net';
 import { createRclnodejsBackend, type RclModule } from '../ros/rclnodejs.js';
 import type { Peer } from '../transport/types.js';
 import { startApp } from './runtime.js';
@@ -12,6 +13,60 @@ export function numberOption(value: string | undefined, fallback: number): numbe
   const number = value === undefined ? fallback : Number(value);
   if (!Number.isSafeInteger(number) || number <= 0) throw new Error('invalid_numeric_option');
   return number;
+}
+
+type IceOptions = Readonly<{
+  iceServers: readonly Readonly<{ urls: string }>[];
+  icePortRange?: readonly [number, number];
+}>;
+
+/**
+ * Validate the supported STUN URI subset without resolving DNS.
+ * @param value Candidate deployment URI.
+ * @returns Whether the URI is `stun:` with a valid host and optional port. For example, `stun:[2001:db8::1]:3478` returns true.
+ */
+function validStunUrl(value: string): boolean {
+  if (value.length > 2048 || !value.startsWith('stun:')) return false;
+
+  // Split bracketed IPv6 separately so embedded colons cannot be confused with a port separator.
+  const authority = value.slice(5);
+  const ipv6 = /^\[([^\]]+)\](?::([^:]+))?$/.exec(authority);
+  const hostPort = ipv6 ?? /^([^:]+)(?::([^:]+))?$/.exec(authority);
+  if (!hostPort) return false;
+
+  // Validate the complete decimal port instead of inheriting Werift's parseInt fallback behavior.
+  const host = hostPort[1], port = hostPort[2];
+  if (port !== undefined && (!/^[0-9]+$/.test(port) || Number(port) < 1 || Number(port) > 65535)) return false;
+  if (ipv6) return !host.includes('%') && isIP(host) === 6;
+  if (isIP(host) === 4) return true;
+
+  // Accept relative or absolute ASCII DNS names, but not malformed numeric IPv4 lookalikes.
+  const dnsHost = host.endsWith('.') ? host.slice(0, -1) : host;
+  if (dnsHost.length === 0 || dnsHost.length > 253 || /^[0-9.]+$/.test(dnsHost)) return false;
+  return dnsHost.split('.').every(label => /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(label));
+}
+
+/** Validate deployment ICE settings. Input: process environment; output: Werift peer options. Example: STUN plus 50000-50019 returns one server and the fixed range. */
+export function iceOptions(env: NodeJS.ProcessEnv): IceOptions {
+  const stunUrl = env.BRIDGE_ICE_STUN_URL;
+  if (stunUrl !== undefined && !validStunUrl(stunUrl)) {
+    throw new Error('invalid_ice_stun_url');
+  }
+
+  // Require both bounds together so deployments cannot silently fall back to random UDP ports.
+  const minimum = env.BRIDGE_ICE_PORT_MIN;
+  const maximum = env.BRIDGE_ICE_PORT_MAX;
+  if ((minimum === undefined) !== (maximum === undefined)) throw new Error('invalid_ice_port_range');
+  if (minimum === undefined || maximum === undefined) {
+    return { iceServers: stunUrl === undefined ? [] : [{ urls: stunUrl }] };
+  }
+
+  const min = numberOption(minimum, 1), max = numberOption(maximum, 1);
+  if (max > 65535 || min >= max) throw new Error('invalid_ice_port_range');
+  return {
+    iceServers: stunUrl === undefined ? [] : [{ urls: stunUrl }],
+    icePortRange: [min, max],
+  };
 }
 
 /** Read a required environment value. Example: env,'BRIDGE_CONFIG' returns a nonempty string; reject missing values without disclosing them. */
@@ -65,6 +120,7 @@ export async function launch(env: NodeJS.ProcessEnv, loader: typeof loadModule =
   const publishScopes = (env.BRIDGE_PUBLISH_SCOPES ?? '').split(',').filter(Boolean);
   const args: unknown = JSON.parse(env.BRIDGE_ROS_ARGS ?? '[]');
   if (!Array.isArray(args) || args.some(value => typeof value !== 'string')) throw new Error('invalid_ros_args');
+  const peerOptions = iceOptions(env);
   const settings = { credential, configSource, maxConfigBytes, subscribeTopics, publishScopes,
     timeoutMs: numberOption(env.BRIDGE_NEGOTIATION_TIMEOUT_MS, 30000), maxSdpBytes: numberOption(env.BRIDGE_MAX_SDP_BYTES, 262144),
     requestTimeoutMs: numberOption(env.BRIDGE_REQUEST_TIMEOUT_MS, 10000), routerLimits: {
@@ -78,7 +134,7 @@ export async function launch(env: NodeJS.ProcessEnv, loader: typeof loadModule =
   return startApp(settings, {
     initialize: () => createRclnodejsBackend(rcl, { nodeName: env.BRIDGE_NODE_NAME ?? 'ros_webrtc_gateway', namespace: '/', args,
       spinTimeoutMs, onError }),
-    makePeer: () => new transport.RTCPeerConnection({ iceServers: [] }),
+    makePeer: () => new transport.RTCPeerConnection(peerOptions),
     listen: handler => listenHttps(key, cert, host, port, handler),
     clock: () => performance.now(), onError,
   });
