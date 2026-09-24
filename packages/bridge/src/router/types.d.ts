@@ -1,6 +1,8 @@
 import type { BridgeConfig, TopicBinding } from '../config/types.js';
 import type { Codec } from '../codec/types.js';
 import type { CommandGuard } from '../session/command-guard.js';
+import type { VideoSlot } from '../transport/types.js';
+import type { VideoAccess } from './video.js';
 
 export type Channel = 'ros.control.v1' | 'ros.reliable.v1' | 'ros.realtime.v1';
 export interface RouterBinding { readonly binding: TopicBinding; readonly codec: Codec; readonly schemaId: string }
@@ -20,6 +22,11 @@ export interface RouterOptions {
   /** Notify once after cleanup. Do not throw; schedule transport close in a microtask. */
   readonly onClosed?: () => void;
   readonly limits: { readonly maxHandles: number; readonly maxRequests: number; readonly requestTtlMs: number; readonly maxControlRateHz: number };
+  /**
+   * Media plane for this peer: its authorization view plus the slots the transport negotiated, in
+   * m-line order. Absent for DataChannel-only deployments.
+   */
+  readonly video?: { readonly access: VideoAccess; readonly slots: readonly VideoSlot[] };
 }
 export interface Subscription {
   readonly entry: RouterBinding;

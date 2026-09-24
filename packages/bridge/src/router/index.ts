@@ -2,8 +2,11 @@ import { DeliveryQueue } from '../session/delivery-queue.js';
 import { identifier, positiveLimit, sequence } from '../session/validation.js';
 import { CONTROL, dataChannel, encodeWire, fields, isChannel, parseWire, textField } from './protocol.js';
 import { RequestCache } from './request-cache.js';
+import { VideoRouter } from './video.js';
 import type { Channel, Publisher, RouterBinding, RouterOptions, Subscription, Wire } from './types.js';
 export type { Channel, RouterBinding, RouterOptions } from './types.js';
+export { VideoRouter } from './video.js';
+export type { VideoAccess } from './video.js';
 
 /** Connect wire operations of one authenticated peer to configuration, codecs, and ROS. */
 export class SessionRouter {
@@ -15,6 +18,7 @@ export class SessionRouter {
   // Control and data share a byte budget; the cache has a separate finite budget.
   private readonly queue: DeliveryQueue;
   private readonly cache: RequestCache;
+  private readonly video?: VideoRouter;
   private readonly maxBytes: number;
   private nextId = 0n;
   private lastTime = 0;
@@ -42,6 +46,9 @@ export class SessionRouter {
     this.queue = new DeliveryQueue({ maxStreams: options.limits.maxHandles + 1, maxBytes: options.config.limits.maxPeerQueueBytes, maxMessageBytes: this.maxBytes });
     this.queue.register('control', 'reliable', options.limits.maxRequests);
     this.cache = new RequestCache(options.limits.maxRequests, options.limits.requestTtlMs, options.config.limits.maxPeerQueueBytes);
+    // Video is opt-in: without a media plane every `video.*` operation stays unknown, exactly as
+    // before the feature existed.
+    if (options.video !== undefined) this.video = new VideoRouter(options.video.access, options.video.slots, wire => this.event(wire));
     this.now();
     this.sessionId = options.guard.openSession(options.epoch);
   }
@@ -71,6 +78,8 @@ export class SessionRouter {
   /** Retry sending when backpressure clears, prioritizing control. No input; sends what can be sent and returns void. */
   flush(): void {
     if (this.closed) return;
+    // Apply revocation to watched video before anything else is handed to the transport.
+    this.video?.revalidate();
     if (!this.drain('control', CONTROL)) return;
     for (const [id, subscription] of this.subscriptions) {
       // Apply ACL revocation immediately before sending buffered data, without waiting for another sample.
@@ -88,6 +97,7 @@ export class SessionRouter {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.video?.close();
     this.options.guard.revokeSession(this.sessionId);
     const failures: unknown[] = [];
     // Continue releasing remaining resources even if one listener fails to clean up.
@@ -108,8 +118,10 @@ export class SessionRouter {
       if (this.welcomed) throw new Error('already_welcomed');
       const catalog = [...this.entries.values()].filter((entry) => this.allowed(entry, entry.binding.direction === 'ros_to_web' ? 'subscribe' : 'publish'))
         .map(({ binding, schemaId }) => ({ topic: binding.publicName, ros_type: binding.rosType, direction: binding.direction, delivery: binding.delivery, schema_id: schemaId }));
-      // Allow subsequent operations only after welcome has been queued.
-      this.respond({ v: 1, op: 'welcome', epoch: this.options.epoch, catalog });
+      // Allow subsequent operations only after welcome has been queued. The video key is present
+      // only when this peer may watch something, so a DataChannel-only welcome is unchanged.
+      const video = this.video?.catalog();
+      this.respond({ v: 1, op: 'welcome', epoch: this.options.epoch, catalog, ...(video === undefined ? {} : { video }) });
       this.welcomed = true;
       return;
     }
@@ -149,6 +161,7 @@ export class SessionRouter {
       this.removeSubscription(textField(wire, 'stream_id'));
       return { v: 1, op: 'unsubscribed', id };
     }
+    if (this.video !== undefined && typeof wire.op === 'string' && wire.op.startsWith('video.')) return this.video.operation(wire, id);
     if (wire.op === 'arm' || wire.op === 'unadvertise') {
       fields(wire, ['id', 'handle']);
       const handle = textField(wire, 'handle');
@@ -267,6 +280,17 @@ export class SessionRouter {
       if (!this.options.send(channel, next)) return false;
       this.queue.dequeue(id);
     }
+  }
+
+  /**
+   * Deliver an event the peer did not ask for. Input: control envelope; returns void.
+   *
+   * A media-plane event happens between requests, so no inbound message is coming to flush the
+   * queue for it: a track going active or failing has to reach the peer when it happens.
+   */
+  private event(wire: Wire): void {
+    try { this.respond(wire); this.flush(); }
+    catch { this.error(undefined); }
   }
 
   /** Store a control response in a bounded queue. Input: wire response; returns void. */

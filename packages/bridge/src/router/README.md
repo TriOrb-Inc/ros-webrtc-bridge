@@ -38,3 +38,27 @@ ROS samples use `message` on the binding's data channel, carrying stream_id, epo
 Single messages are limited to min(configured limit, 16 KiB); pending output is bounded by configured peer queue bytes and pending control entries by maxRequests. The cache separately uses the same peer-byte limit to account for request text (UTF-16) and response bytes. Queue plus cache can therefore total twice that byte limit. The cache also bounds count and lifetime. The same ID with identical content reuses a response without repeating execution; the same ID with different content is rejected. Reusing an ID after cache expiration is not guaranteed to identify the same operation.
 
 Reliable stream overflow releases its listener and queue. Realtime replaces old data with the latest value and drops it if insufficient bytes remain. If a control response cannot be retained, the peer closes and releases resources. Failed requests receive no success response. Process-wide budgets, native callback backlog, token issuance, and a request-retry SDK require further integration.
+
+## Video control operations
+
+Present only when the deployment configures `video_tracks`; otherwise `video.*` stays an unknown
+operation and the `welcome` envelope is unchanged.
+
+| Operation | Fields | Response |
+| --- | --- | --- |
+| `video.subscribe` | `id`, `track` | `video.subscribed` with `track` and the negotiated `mid` |
+| `video.unsubscribe` | `id`, `mid` | `video.unsubscribed` |
+
+`welcome` gains a `video` array of `{track, codec}` for the tracks this peer may watch. Backend, ROS
+topic and bitrate are never disclosed: they describe the host, not the offered stream.
+
+A negotiated `m=video` section is a pipe, not a subscription - watching is an explicit act, so an
+idle transceiver costs nothing. A slot binds to a track on first subscribe and stays bound for the
+session: reusing a mid for a different source would change resolution and parameter sets underneath a
+decoder that was never told to expect it. Unsubscribing stops delivery but keeps the binding, so
+resuming reuses the same mid without renegotiation.
+
+Lifecycle changes arrive as `video.state` with `starting`, `active`, `idle` or `failed` and never
+carry a cause. Authorization is re-evaluated on every flush; losing a scope detaches the viewer
+immediately. As on the Topic side, the guarantee is that no *new* RTP is handed to the peer after
+revocation completes - packets already given to the transport cannot be recalled.
