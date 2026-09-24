@@ -21,7 +21,7 @@ After ament/colcon installation, `ros2 run ros_webrtc_bridge ros_webrtc_bridge` 
 | `BRIDGE_NODE_NAME` | `ros_webrtc_gateway` | ROS node name |
 | `BRIDGE_ROS_ARGS` | `[]` | JSON string array of ROS arguments, including remaps |
 | `BRIDGE_SPIN_TIMEOUT_MS` | `10` | rclnodejs spin timeout |
-| `BRIDGE_ICE_STUN_URL` | Unset | Optional `stun:` or `stuns:` URI used by the bridge to discover a server-reflexive candidate |
+| `BRIDGE_ICE_STUN_URL` | Unset | Optional supported `stun:<host>[:port]` URI used by the bridge to discover a server-reflexive candidate |
 | `BRIDGE_ICE_PORT_MIN` / `BRIDGE_ICE_PORT_MAX` | Unset | Optional inclusive UDP allocation range; both bounds are required and the minimum must be lower than the maximum |
 | `BRIDGE_MAX_CONFIG_BYTES` | `1048576` | YAML document limit |
 | `BRIDGE_NEGOTIATION_TIMEOUT_MS` | `30000` | Deadline for SDP/ICE/three-channel establishment and peer closure |
@@ -42,7 +42,7 @@ Swagger UI is available at `/docs`, with HTTP specifications at `/openapi.json` 
 
 OpenAPI describes only the implemented health/offer endpoints. ROS Topic Pub/Sub uses the DataChannel wire protocol and is not listed as REST endpoints. A valid offer submitted through Try it out still requires a client implementing the three fixed DataChannels, ICE gathering, answer application, and ready handshake.
 
-By default, the Gateway's ICE server list is empty and it uses host candidates. A deployment may set `BRIDGE_ICE_STUN_URL` to discover a server-reflexive candidate and must use `BRIDGE_ICE_PORT_MIN` / `BRIDGE_ICE_PORT_MAX` when its firewall permits only a fixed UDP range. The range controls local socket allocation; it does not configure the firewall, guarantee NAT traversal, or replace TURN. The test configuration supplies TURN on the browser side. SIGINT/SIGTERM revoke sessions and release peers, shared ROS entities, and HTTP sockets. The running process prints anonymous status every five seconds.
+By default, the Gateway's ICE server list is empty and it uses host candidates. A deployment may set `BRIDGE_ICE_STUN_URL` to discover a server-reflexive candidate. The accepted form is exactly `stun:<host>[:port]`, where host is an ASCII DNS name, strict IPv4 address, or bracketed IPv6 address and the optional decimal port has a value from `1` through `65535`; the Bridge does not resolve DNS during validation. Secure `stuns:`, URI authority markers, credentials, paths, queries, fragments, and invalid ports are rejected before native modules load. Use `BRIDGE_ICE_PORT_MIN` / `BRIDGE_ICE_PORT_MAX` when the firewall permits only a fixed UDP range. The range controls local socket allocation; it does not configure the firewall, guarantee NAT traversal, or replace TURN. The test configuration supplies TURN on the browser side. SIGINT/SIGTERM revoke sessions and release peers, shared ROS entities, and HTTP sockets. The running process prints anonymous status every five seconds.
 
 `registry.ts` syntax-checks candidate YAML types, resolves every actual type through the native loader, and constructs codecs. Schema IDs consist of `sha256:` followed by the hash of UTF-8 canonical JSON for `{codec:'ros-json-v1',descriptor,allowNonFinite}`. Object keys are recursively sorted in ascending JavaScript string order; array order is preserved. These IDs are distinct from ROS type hashes and public JSON Schema documents. Differences in non-finite-value policy caused by command guards also affect the ID.
 

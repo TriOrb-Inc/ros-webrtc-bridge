@@ -41,28 +41,49 @@ test('CFG-01 validate numeric environment values and fail before loading native 
   await assert.rejects(launch({ BRIDGE_CREDENTIAL: 'x' }), /invalid_credential/);
   const f = await credentials();
   for (const overrides of [{ BRIDGE_PORT: '65536' }, { BRIDGE_HOST: '' }, { BRIDGE_ROS_ARGS: '{}' }, { BRIDGE_ROS_ARGS: '[1]' },
-    { BRIDGE_TLS_KEY: '/file-that-does-not-exist' }]) {
+    { BRIDGE_ICE_STUN_URL: 'stuns:stun.example.test' }, { BRIDGE_TLS_KEY: '/file-that-does-not-exist' }]) {
     await assert.rejects(launch({ ...f.env, ...overrides }, async () => assert.fail('native must not load')));
   }
 });
 
 test('CFG-01 validate optional STUN and fixed UDP range settings', () => {
   assert.deepEqual(iceOptions({}), { iceServers: [] });
-  assert.deepEqual(iceOptions({ BRIDGE_ICE_STUN_URL: 'stun:stun.example.test:3478' }), {
-    iceServers: [{ urls: 'stun:stun.example.test:3478' }],
-  });
-  assert.deepEqual(iceOptions({ BRIDGE_ICE_STUN_URL: 'stuns:stun.example.test:5349',
+  for (const url of [
+    'stun:stun.example.test',
+    'stun:stun.example.test:3478',
+    'stun:stun.example.test.',
+    'stun:stun.example.test:01',
+    'stun:localhost:1',
+    'stun:xn--bcher-kva.example:65535',
+    'stun:192.0.2.1',
+    'stun:192.0.2.1:3478',
+    'stun:[2001:db8::1]',
+    'stun:[2001:db8::1]:3478',
+  ]) assert.deepEqual(iceOptions({ BRIDGE_ICE_STUN_URL: url }), { iceServers: [{ urls: url }] });
+  assert.deepEqual(iceOptions({ BRIDGE_ICE_STUN_URL: 'stun:stun.example.test:5349',
     BRIDGE_ICE_PORT_MIN: '50000', BRIDGE_ICE_PORT_MAX: '50019' }), {
-    iceServers: [{ urls: 'stuns:stun.example.test:5349' }], icePortRange: [50000, 50019],
+    iceServers: [{ urls: 'stun:stun.example.test:5349' }], icePortRange: [50000, 50019],
   });
   assert.deepEqual(iceOptions({ BRIDGE_ICE_PORT_MIN: '50000', BRIDGE_ICE_PORT_MAX: '50019' }), {
     iceServers: [], icePortRange: [50000, 50019],
   });
 
   // Reject ambiguous or unsafe settings before native modules and sockets are initialized.
+  for (const url of [
+    '', 'stun:', 'STUN:example.test', 'stuns:example.test', 'https://example.test',
+    'stun://example.test', 'stun:user@example.test', 'stun:example.test/path',
+    'stun:example.test?transport=udp', 'stun:example.test#fragment', 'stun:example test',
+    'stun:.', 'stun:.example.test', 'stun:example..test', 'stun:example.test..', 'stun:-example.test',
+    'stun:example-.test', 'stun:example_test', `stun:${'x'.repeat(64)}.test`,
+    `stun:${'a'.repeat(250)}.test`, 'stun:999.0.0.1', 'stun:192.0.2',
+    'stun:192.0.2.1.5', 'stun:2001:db8::1', 'stun:[2001:db8::zz]',
+    'stun:[2001:db8::1', 'stun:2001:db8::1]', 'stun:[2001:db8::1]extra',
+    'stun:[2001:db8::1%25eth0]', 'stun:example.test:', 'stun:example.test:0',
+    'stun:example.test:+1', 'stun:example.test:0x50',
+    'stun:example.test:65536', 'stun:example.test:999999',
+    `stun:${'x'.repeat(2044)}`,
+  ]) assert.throws(() => iceOptions({ BRIDGE_ICE_STUN_URL: url }), /invalid_ice_stun_url/);
   for (const env of [
-    { BRIDGE_ICE_STUN_URL: 'https://example.test' },
-    { BRIDGE_ICE_STUN_URL: `stun:${'x'.repeat(2044)}` },
     { BRIDGE_ICE_PORT_MIN: '50000' },
     { BRIDGE_ICE_PORT_MAX: '50019' },
     { BRIDGE_ICE_PORT_MIN: '50000', BRIDGE_ICE_PORT_MAX: '50000' },
