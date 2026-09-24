@@ -13,7 +13,7 @@ export function inspectConfig(source: string, maxBytes: number): BridgeConfig {
   const document = parseDocument(source, { uniqueKeys: true, version: '1.2', schema: 'core' });
   if (document.errors.length || document.warnings.length) throw new Error('invalid_config');
   // Candidate type names do not prove availability; they only provide syntax-validated input to the native type loader.
-  const root = record(document.toJS({ maxAliasCount: 0 }), ['version', 'robot_id', 'limits', 'topics'], '$');
+  const root = record(document.toJS({ maxAliasCount: 0 }), ['version', 'robot_id', 'limits', 'topics', 'video', 'video_tracks'], '$');
   const topics = record(root.topics, Object.keys(Object(root.topics)), 'topics');
   const availableTypes = Object.values(topics).map((value) => {
     const entry = record(value, Object.keys(Object(value)), 'topic');

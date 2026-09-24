@@ -1,3 +1,5 @@
+import { parseDocument } from 'yaml';
+
 /** Configuration error. Reports only the configuration location, without input values. */
 export class ConfigError extends Error {
   /** Construct an error from location and reason. Returns Error. Example: ('topics', 'object required'). */
@@ -53,4 +55,22 @@ export function topicName(value: unknown, path: string): string {
   // Match the maximum fully qualified ROS name length to prevent failures only when creating native entities after remapping.
   if (name.length > 247) throw new ConfigError(path, 'topic name too long');
   return name;
+}
+
+/**
+ * Read a configuration document under the same guarantees for every caller.
+ * @param source YAML text, e.g. `"version: 1\ntopics: {}"`.
+ * @param maxBytes Document limit in UTF-8 bytes, e.g. 1048576.
+ * @returns The plain value, e.g. `{version: 1, topics: {}}`. Aliases and custom tags are rejected.
+ */
+export function readDocument(source: string, maxBytes: number): unknown {
+  if (typeof source !== 'string' || Buffer.byteLength(source, 'utf8') > maxBytes) throw new ConfigError('$', 'invalid document size');
+  // Prevent aliases and custom tags from creating unexpected types or sizes before validation.
+  try {
+    const doc = parseDocument(source, { uniqueKeys: true, version: '1.2', schema: 'core' });
+    if (doc.errors.length || doc.warnings.length) throw new Error('invalid YAML');
+    return doc.toJS({ maxAliasCount: 0 });
+  } catch {
+    throw new ConfigError('$', 'invalid YAML; aliases and custom tags are unsupported');
+  }
 }

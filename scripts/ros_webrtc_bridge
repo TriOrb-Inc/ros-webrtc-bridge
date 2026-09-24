@@ -6,6 +6,11 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 entrypoint="${script_dir}/dist/app/cli.js"
 
+# The GStreamer backends run an out-of-process worker installed alongside the bundle. Naming it here
+# keeps an installed deployment able to use them without an external source checkout; an operator
+# replacing the worker sets BRIDGE_VIDEO_WORKER themselves.
+export BRIDGE_VIDEO_WORKER="${BRIDGE_VIDEO_WORKER:-${script_dir}/worker/media_worker.py}"
+
 exec node --input-type=module --eval '
   import { pathToFileURL } from "node:url";
   try {
