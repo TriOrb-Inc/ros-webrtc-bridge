@@ -1,5 +1,5 @@
 import { boolean, choice, ConfigError, positive, record, string, topicName } from './validation.js';
-import type { ConfigOptions, TopicBinding } from './types.js';
+import type { ConfigOptions, RosQos, TopicBinding } from './types.js';
 
 /** Normalize a binding. Inputs: public name, map, registry/remap. Example: /odom config returns a frozen TopicBinding. */
 export function binding(name: string, value: unknown, options: ConfigOptions): TopicBinding {
@@ -13,12 +13,7 @@ export function binding(name: string, value: unknown, options: ConfigOptions): T
   if (!options.availableTypes.includes(rosType)) throw new ConfigError(path, 'type unavailable');
   const direction = choice(map.direction, ['ros_to_web', 'web_to_ros'], `${path}.direction`);
   // Validate QoS and delivery independently. A reliable DataChannel may use DDS best_effort.
-  const qos = record(map.ros_qos, ['reliability', 'durability', 'history', 'depth'], `${path}.ros_qos`);
-  const reliability = choice(qos.reliability, ['reliable', 'best_effort'], `${path}.ros_qos.reliability`);
-  const durability = choice(qos.durability, ['volatile', 'transient_local'], `${path}.ros_qos.durability`);
-  const history = choice(qos.history, ['keep_last'], `${path}.ros_qos.history`);
-  // Limit history capacity to finite positive integers.
-  const depth = positive(qos.depth, `${path}.ros_qos.depth`, true);
+  const qos = rosQos(map.ros_qos, path);
   const delivery = choice(map.delivery, ['reliable', 'realtime'], `${path}.delivery`);
   const maxRateHz = positive(map.max_rate_hz, `${path}.max_rate_hz`, false);
   const queue = record(map.queue, ['policy', 'max_messages'], `${path}.queue`);
@@ -29,10 +24,21 @@ export function binding(name: string, value: unknown, options: ConfigOptions): T
   if (policy === 'latest' && maxMessages !== 1) throw new ConfigError(path, 'latest requires one message');
   // Apply authorization settings only to Web-to-ROS bindings; omitted settings grant no permissions.
   const access = parseAccess(map.access, direction, path);
-  const commandGuard = parseGuard(map.command_guard, direction, durability, access, path);
+  const commandGuard = parseGuard(map.command_guard, direction, qos.durability, access, path);
   return Object.freeze({ publicName, rosTopic, rosType, direction, delivery, maxRateHz,
-    rosQos: Object.freeze({ reliability, durability, history, depth }),
-    queue: Object.freeze({ policy, maxMessages }), access, commandGuard });
+    rosQos: qos, queue: Object.freeze({ policy, maxMessages }), access, commandGuard });
+}
+
+/** Validate DDS QoS. Inputs: map and owning path, e.g. (qos,'topics./odom'); returns frozen policy. keep_all throws. */
+export function rosQos(value: unknown, path: string): RosQos {
+  const qos = record(value, ['reliability', 'durability', 'history', 'depth'], `${path}.ros_qos`);
+  return Object.freeze({
+    reliability: choice(qos.reliability, ['reliable', 'best_effort'], `${path}.ros_qos.reliability`),
+    durability: choice(qos.durability, ['volatile', 'transient_local'], `${path}.ros_qos.durability`),
+    history: choice(qos.history, ['keep_last'], `${path}.ros_qos.history`),
+    // Limit history capacity to finite positive integers.
+    depth: positive(qos.depth, `${path}.ros_qos.depth`, true),
+  });
 }
 
 /** Validate publish permissions. Example: (undefined, ros_to_web, path) returns undefined; contradictions throw. */

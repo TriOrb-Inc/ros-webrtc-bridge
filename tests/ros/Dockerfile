@@ -10,6 +10,14 @@ COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
+# GStreamer and its Python bindings are the media worker's runtime. They are host dependencies of a
+# deployment, not bundled by this project, so the test image installs them exactly as an operator would.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+      gstreamer1.0-tools python3-gi gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 && \
+    rm -rf /var/lib/apt/lists/*
+
 # Add the test-only implementation only in Cyclone test images that change RMW from the Fast DDS baseline.
 ARG BRIDGE_RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 RUN if [[ "${BRIDGE_RMW_IMPLEMENTATION}" == "rmw_cyclonedds_cpp" ]]; then \
@@ -44,6 +52,7 @@ COPY tests ./tests
 COPY examples ./examples
 COPY launch ./launch
 COPY scripts ./scripts
+COPY worker ./worker
 RUN npm run build
 
 # Connection-test Gateways use only colcon-installed artifacts, never direct source-tree startup.

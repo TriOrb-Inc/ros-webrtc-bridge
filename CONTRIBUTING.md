@@ -46,12 +46,13 @@ npm run prepare:transport
 npm run build
 npm run typecheck
 npm run test:packaging:contract
+npm run test:transport:media
 npm run test:performance
 ```
 
 The build removes the previous `.runtime/build/` and regenerates TypeScript output and source maps. `node_modules/` stays at the repository root for standard npm resolution and is excluded from Git. Linting is not yet configured. [CI](.github/workflows/ci.yml) runs when PRs are opened or reopened and when commits are pushed to PR branches. See [TESTS.md](TESTS.md) for test commands and their guarantees.
 
-Runtime dependencies are `yaml 2.9.0` (ISC), `rclnodejs 2.2.0` (Apache-2.0), `swagger-ui-dist 5.32.15` (Apache-2.0) for HTTP documentation, and the [local Werift core package](vendor/werift-datachannel/README.md) (MIT). Swagger UI's transitive dependency `@scarf/scarf 1.4.0` is also Apache-2.0. The standard `npm ci --ignore-scripts` does not execute its installation telemetry. Swagger UI loads only the distributed CSS/JavaScript assets and does not import this helper at runtime. Run rclnodejs installation and type generation explicitly in a ROS environment; ROS-independent unit tests do not load native bindings. Preserve the [additional ref-napi notices](vendor/rclnodejs-notices/README.md) in distributions.
+Deployments that configure `video_tracks` additionally need GStreamer and the elements their selected encoder backend uses, installed on the host. Nothing from GStreamer is bundled or linked; a missing element fails startup with an actionable message. Runtime dependencies are `yaml 2.9.0` (ISC), `rclnodejs 2.2.0` (Apache-2.0), `swagger-ui-dist 5.32.15` (Apache-2.0) for HTTP documentation, and the [local Werift core package](vendor/werift-datachannel/README.md) (MIT). Swagger UI's transitive dependency `@scarf/scarf 1.4.0` is also Apache-2.0. The standard `npm ci --ignore-scripts` does not execute its installation telemetry. Swagger UI loads only the distributed CSS/JavaScript assets and does not import this helper at runtime. Run rclnodejs installation and type generation explicitly in a ROS environment; ROS-independent unit tests do not load native bindings. Preserve the [additional ref-napi notices](vendor/rclnodejs-notices/README.md) in distributions.
 
 When changing ROS packaging, source the target distribution and run `npm rebuild rclnodejs --foreground-scripts`, then validate `colcon build`, `colcon test`, and installed `ros2 run` / `ros2 launch` commands. See [ROS packaging](docs/ros-packaging.md) for prerequisites for isolated Humble/Jazzy validation with `npm run test:packaging`, CMake options, and dynamic ROS interface dependencies.
 
@@ -148,11 +149,25 @@ This section defines common quality standards. [TESTS.md](TESTS.md) defines test
 - Add a fixed reproduction test or validation procedure for bug fixes where possible.
 - Prefer writing tests first when expected behavior can be specified in advance.
 - Implementation requires **100% C0 and C1 coverage**. Documentation-only changes are excluded. Document measurement tools, scope, and exclusions; do not claim unmeasured coverage as achieved.
+- Code that can only execute against host hardware - currently the GStreamer encoder backends - is
+  outside the CI coverage gate, because a runner cannot exercise it. Such code must be isolated
+  behind an injected interface so everything around it stays measurable, and it must be verified on
+  real hardware with the evidence recorded. Do not measure coverage inside third-party runtimes such
+  as GStreamer. An unexecuted hardware check is reported as `not run`, never as passing.
 - MC/DC coverage is not required in this repository.
 
 ## License And Dependency Rules
 
 - Do not introduce copyleft dependencies such as GPL, LGPL, AGPL, or MPL-2.0. Check direct and transitive dependencies and distributed artifacts.
+- This rule governs what this project distributes. Host runtime dependencies that are neither bundled
+  nor linked into a distributed artifact - the OS, ROS, and GStreamer - are outside it, exactly as ROS
+  itself is. Never bundle or statically link them, and never make one a build-time requirement of the
+  core package. A host that cannot provide a selected component is an error, not a reason to fall back.
+- Even as a host dependency, do not make a GPL component part of a default, documented, or tested
+  path. The H.264 encoder backends are selected explicitly for this reason: `openh264` is offered,
+  `x264` is not. Upstream openh264 is BSD-2-Clause; its Debian packaging carries a small MPL-2.0
+  component (`module/task_utils*`), which stays outside this rule while openh264 remains a host
+  dependency this project neither bundles nor links.
 - Prefer permissive licenses such as Apache-2.0, MIT, and BSD for new dependencies.
 - Do not adopt dependencies with unknown licenses until their terms are verified.
 - Explain the selection rationale, license, security implications, and distribution/operational impact of new dependencies in the PR or related documentation.

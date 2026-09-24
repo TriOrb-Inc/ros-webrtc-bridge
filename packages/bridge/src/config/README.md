@@ -24,3 +24,27 @@ The prototype restricts Web and ROS names to absolute names of at most 247 ASCII
 Omitting authorization information does not grant publish permission. Authentication policy, process-wide capacity, negotiated transport limits, native callback backlog, and actual rate enforcement belong to higher layers. Validating a configuration does not establish that every configured limit is enforced at runtime.
 
 See the [design](../../../../docs/design.md) and [test policy](../../../../TESTS.md).
+
+## Media plane
+
+`parseVideoConfig` validates `video`, `video_tracks` and `limits.video` separately from
+`BridgeConfig`, so raw video never enters the DataChannel contract. It returns `undefined` when none
+of the three is present; configuring only some of them is rejected rather than half-applied.
+
+- `video_tracks.<name>` keys are public track names; `ros_topic` is always explicit and must name a
+  `sensor_msgs/msg/Image` source with `volatile` durability, because latched history would replay a
+  stale frame into a live stream.
+- `input` fixes the encoding, geometry and frame rate the source must deliver. Frames that differ are
+  rejected, never rescaled, and the values are bounded by `limits.video`.
+- `encoder.backend` is mandatory and validated against the known backends. There is no `auto` value.
+  `bitrate` is always bits per second; converting to each element's unit belongs to the backend.
+  `profile` and `bitrate` are checked against what the selected backend supports.
+- `access.subscribe_scope` is required. An omitted scope is not "public": the caller denies every
+  scope it was not granted.
+- One ROS topic feeds at most one source, and a topic exposed through `topics` cannot also be a video
+  source: the two planes have different size limits, authorization and queue behaviour.
+
+Video tracks are parsed separately by `parseVideoConfig`, and their `ros_topic` is used as written:
+`options.resolveTopic` applies to `topics` only, so a deployment's ROS remaps do not move a video
+source. A track may name an `output` geometry, which is the size it encodes at; omitting it encodes
+at the input size. Both axes must be even, because H.264 has no representation for an odd one.

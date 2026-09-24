@@ -1,0 +1,41 @@
+# Hardware-encoder configuration: the mock ROS publisher feeds the L4T V4L2 encoder.
+#
+# Identical to connection-video.yaml except for the backend, which is the point: the mock source
+# keeps the ROS side of the test free of platform variance, so a failure here is the encoder's.
+version: 1
+robot_id: video-hardware
+limits:
+  max_peers: 8
+  max_message_bytes: 16384
+  max_peer_queue_bytes: 262144
+  max_channel_buffered_bytes: 65536
+  video:
+    max_tracks: 2
+    max_pipelines: 2
+    max_slots_per_peer: 2
+    max_width: 1920
+    max_height: 1080
+    max_framerate: 60
+topics:
+  /output:
+    ros_topic: /bridge_test/out
+    ros_type: std_msgs/msg/String
+    direction: ros_to_web
+    ros_qos: { reliability: reliable, durability: volatile, history: keep_last, depth: 10 }
+    delivery: reliable
+    max_rate_hz: 20
+    queue: { policy: fifo, max_messages: 16 }
+video:
+  start_timeout_ms: 15000
+  stop_grace_ms: 1000
+  # Shortest gap between start attempts after a failure; a peer retrying cannot spawn encoders at will.
+  retry_min_interval_ms: 5000
+  pli_min_interval_ms: 200
+video_tracks:
+  front:
+    ros_topic: /bridge_test/image_raw
+    ros_type: sensor_msgs/msg/Image
+    ros_qos: { reliability: best_effort, durability: volatile, history: keep_last, depth: 1 }
+    input: { encoding: rgb8, width: 320, height: 240, framerate: 15 }
+    encoder: { codec: h264, backend: l4t_v4l2, bitrate: 2000000, keyframe_interval: 15, profile: constrained_baseline }
+    access: { subscribe_scope: video.front }
