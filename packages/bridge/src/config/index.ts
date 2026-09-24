@@ -2,7 +2,7 @@ import { binding, checkOutputs } from './binding.js';
 import { ConfigError, positive, readDocument, record, string } from './validation.js';
 import type { BridgeConfig, ConfigOptions } from './types.js';
 export { ConfigError, readDocument } from './validation.js';
-export { parseVideoConfig, VIDEO_BACKENDS, VIDEO_ENCODINGS } from './video.js';
+export { parseVideoConfig, PROFILE_IDC, VIDEO_BACKENDS, VIDEO_ENCODINGS } from './video.js';
 export type { BridgeConfig, ConfigOptions, TopicBinding, VideoBinding, VideoConfig } from './types.js';
 
 /** Parse startup configuration from YAML and the installed type registry. Example: bridge.yaml returns a frozen BridgeConfig. */

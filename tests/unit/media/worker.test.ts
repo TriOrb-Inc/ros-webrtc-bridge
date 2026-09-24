@@ -162,3 +162,17 @@ test('keeps a keyframe request harmless when no worker is running', () => {
   createWorkerFactory(p.value)(binding()).requestKeyframe();
   assert.deepEqual(p.sent, []);
 });
+
+test('does not report an exit we asked for as a failure', async () => {
+  // A worker leaving because the last viewer did is the normal case. Reporting it drove the source
+  // to `failed` after it had already stopped, and could stop a replacement started in the meantime.
+  const p = port();
+  let failures = 0;
+  const source = createWorkerFactory(p.value)(binding());
+  const starting = source.start(() => {}, () => { failures++; });
+  p.say(READY);
+  await starting;
+  await source.stop();
+  p.die();
+  assert.equal(failures, 0);
+});

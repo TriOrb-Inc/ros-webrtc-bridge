@@ -81,7 +81,18 @@ export class MediaService {
    * @returns void. An unknown track is rejected rather than created on demand.
    */
   attach(track: string, viewer: Viewer): void {
-    this.source(track).add(viewer);
+    const source = this.source(track);
+    // `max_pipelines` bounds how many encoders may run at once, which is what protects the GPU and
+    // the host. Subscriptions to different tracks arrive independently, so the bound has to be
+    // applied here; refusing is the documented behaviour, because quietly exceeding a configured
+    // resource limit is worse than a peer being told it cannot watch a third stream right now.
+    if (!source.running && this.running() >= this.options.config.limits.maxPipelines) throw new Error('video_pipeline_limit');
+    source.add(viewer);
+  }
+
+  /** Count the encoders currently running. No input; returns the number of non-idle sources. */
+  private running(): number {
+    return [...this.sources.values()].filter(source => source.running).length;
   }
 
   /** Detach a viewer. Inputs: track name and viewer; returns void. The encoder stops after the grace window. */

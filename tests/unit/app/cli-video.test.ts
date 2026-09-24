@@ -30,7 +30,7 @@ function transport() {
 
 test('adds a send-only transceiver and leaves the codec to negotiation', () => {
   const t = transport();
-  const slot = videoSlot(t.media, t.peer);
+  const slot = videoSlot(t.media, t.peer, { payloadType: 96, profileLevelId: '42e01f' });
   assert.equal(t.state.direction, 'sendonly', 'this bridge never receives video');
   // Assigning codecs here would override what werift negotiated with the browser, which shows up as
   // packets the decoder counts but never turns into frames.
@@ -43,7 +43,7 @@ test('adds a send-only transceiver and leaves the codec to negotiation', () => {
 
 test('carries RTP, keyframe requests and release through to the track', () => {
   const t = transport();
-  const slot = videoSlot(t.media, t.peer);
+  const slot = videoSlot(t.media, t.peer, { payloadType: 96, profileLevelId: '42e01f' });
   slot.write(Buffer.from([1, 2, 3]));
   assert.deepEqual(t.written, [Buffer.from([1, 2, 3])]);
   let requested = 0;

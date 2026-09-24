@@ -3,11 +3,22 @@ import type { VideoSlot } from '../transport/types.js';
 import type { VideoState, Viewer } from '../media/types.js';
 import type { Wire } from './types.js';
 
+/**
+ * Read the profile from an SDP `profile-level-id`.
+ * @param profileLevelId Six hex digits, e.g. `42e01f`.
+ * @returns The `profile_idc` its first byte carries, e.g. 66.
+ */
+function profileIdc(profileLevelId: string): number {
+  return Number.parseInt(profileLevelId.slice(0, 2), 16);
+}
+
 /** What one peer's router needs from the media plane. Keeps werift and GStreamer out of the router. */
 export interface VideoAccess {
   readonly maxSlots: number;
   catalog(): { track: string; codec: string }[];
   authorize(track: string): boolean;
+  /** H.264 `profile_idc` the configured track produces, e.g. 66 for constrained baseline. */
+  profileIdc(track: string): number;
   attach(track: string, viewer: Viewer): void;
   detach(track: string, viewer: Viewer): void;
   requestKeyframe(track: string): void;
@@ -55,7 +66,9 @@ export class VideoRouter {
       if (!this.access.authorize(track)) throw new Error('unauthorized');
       const entry = this.bind(track);
       // Re-subscribing to a track this peer already watches is idempotent, not a second viewer.
-      if (!entry.watching) { entry.watching = true; this.access.attach(track, entry.viewer); }
+      // Mark it watched only once the media plane accepted it: a refused attachment - the encoder
+      // concurrency bound, say - must leave the peer able to try again rather than looking subscribed.
+      if (!entry.watching) { this.access.attach(track, entry.viewer); entry.watching = true; }
       return { v: 1, op: 'video.subscribed', id, track, mid: entry.slot.mid };
     }
     if (wire.op === 'video.unsubscribe') {
@@ -88,8 +101,14 @@ export class VideoRouter {
   private bind(track: string): { slot: VideoSlot; viewer: Viewer; watching: boolean } {
     const existing = this.bound.get(track);
     if (existing !== undefined) return existing;
-    const slot = this.free.shift();
-    if (slot === undefined) throw new Error('video_slot_limit');
+    if (this.free.length === 0) throw new Error('video_slot_limit');
+    // A section negotiated for one profile cannot carry another: the decoder was told what to expect
+    // and would be handed a bitstream it may not be able to interpret. Take a section this track can
+    // actually fill rather than the first one free.
+    const wanted = this.access.profileIdc(track);
+    const index = this.free.findIndex(candidate => profileIdc(candidate.profileLevelId) === wanted);
+    if (index === -1) throw new Error('video_profile_mismatch');
+    const [slot] = this.free.splice(index, 1);
     const entry = { slot, watching: false, viewer: this.viewer(track, slot) };
     // A decoder recovering from loss asks the sender, not the source; forward it to the encoder.
     slot.onKeyframeRequest(() => { if (entry.watching) this.access.requestKeyframe(track); });

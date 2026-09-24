@@ -25,6 +25,16 @@ export class VideoSource {
     this.options = options;
   }
 
+  /**
+   * Whether this source currently holds an encoder. No input; returns true while one runs.
+   *
+   * True through the grace window as well: the encoder is still running there, just unwatched, so a
+   * concurrency bound that ignored it would let one more start than the host was configured for.
+   */
+  get running(): boolean {
+    return this.phase !== 'idle' && this.phase !== 'failed';
+  }
+
   /** Report counters for internal diagnostics. No input; returns a snapshot without paths or payloads. */
   get diagnostics(): VideoDiagnostics {
     return { track: this.options.binding.name, backend: this.options.binding.encoder.backend,

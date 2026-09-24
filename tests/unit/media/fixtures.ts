@@ -45,10 +45,11 @@ export function binding(change: Partial<VideoBinding> = {}): VideoBinding {
 }
 
 /** Build a validated-shaped media plane. @param tracks Bindings to serve @returns Video configuration */
-export function videoConfig(tracks: readonly VideoBinding[] = [binding()]): VideoConfig {
+export function videoConfig(tracks: readonly VideoBinding[] = [binding()],
+  limits: Partial<VideoConfig['limits']> = {}): VideoConfig {
   return {
     settings: { startTimeoutMs: 5000, stopGraceMs: 5000, pliMinIntervalMs: 200 },
-    limits: { maxTracks: 4, maxPipelines: 2, maxSlotsPerPeer: 2, maxWidth: 1920, maxHeight: 1080, maxFramerate: 60 },
+    limits: { maxTracks: 4, maxPipelines: 2, maxSlotsPerPeer: 2, maxWidth: 1920, maxHeight: 1080, maxFramerate: 60, ...limits },
     tracks,
   };
 }

@@ -67,10 +67,11 @@ async function harness(change: Partial<AppFactories> = {}) {
     ...base.factories,
     videoBackends: { fixture: e.factory },
     /** Create a fake transceiver slot. Inputs: peer and offered codec; returns a recorded slot. */
-    makeVideoSlot(_peer: Peer, _offered) {
+    makeVideoSlot(_peer: Peer, offered) {
       const entry = { mid: String(slots.length), written: [] as Buffer[], stopped: 0, pli: undefined as (() => void) | undefined };
       slots.push(entry);
-      return { get mid() { return entry.mid; }, write(packet: Buffer) { entry.written.push(packet); },
+      return { get mid() { return entry.mid; }, profileLevelId: offered.profileLevelId,
+        write(packet: Buffer) { entry.written.push(packet); },
         onKeyframeRequest(callback: () => void) { entry.pli = callback; }, stop() { entry.stopped++; } } satisfies VideoSlot;
     },
     /** Capture the signaling handler. Input: handler; returns a closable server. */
@@ -159,7 +160,7 @@ test('denies a track whose scope was not granted', async () => {
   let handle!: (request: IncomingMessage, response: ServerResponse) => Promise<void>;
   const app = await startApp({ ...settings, configSource: VIDEO_CONFIG, videoScopes: [] }, {
     ...base.factories, videoBackends: { fixture: e.factory },
-    makeVideoSlot: () => ({ mid: '0', write() {}, onKeyframeRequest() {}, stop() {} }),
+    makeVideoSlot: () => ({ mid: '0', profileLevelId: '42e01f', write() {}, onKeyframeRequest() {}, stop() {} }),
     async listen(handler) { handle = handler; return { async close() {} }; },
   });
   const request = Object.assign(new EventEmitter(), { method: 'POST', url: '/offer', headers: {
@@ -191,7 +192,7 @@ test('falls back to real timers when no scheduler is injected', async () => {
   let handle!: (request: IncomingMessage, response: ServerResponse) => Promise<void>;
   const app = await startApp({ ...settings, configSource: VIDEO_CONFIG.replace('stop_grace_ms: 5000', 'stop_grace_ms: 1'), videoScopes: ['video.front'] }, {
     ...base.factories, videoBackends: { fixture: e.factory },
-    makeVideoSlot: () => ({ mid: '0', write() {}, onKeyframeRequest() {}, stop() {} }),
+    makeVideoSlot: () => ({ mid: '0', profileLevelId: '42e01f', write() {}, onKeyframeRequest() {}, stop() {} }),
     async listen(handler) { handle = handler; return { async close() {} }; },
   });
   const request = Object.assign(new EventEmitter(), { method: 'POST', url: '/offer', headers: {

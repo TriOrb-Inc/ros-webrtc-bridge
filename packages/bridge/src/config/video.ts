@@ -12,6 +12,14 @@ export const VIDEO_ENCODINGS = Object.freeze({ rgb8: 'RGB', bgr8: 'BGR', mono8: 
  * Encoder backends selectable per track, with the profiles and bitrate range each one supports.
  * Selection is always explicit in configuration: this table validates a choice, it never makes one.
  */
+/**
+ * H.264 `profile_idc` for each configured profile name.
+ *
+ * The first byte of an SDP `profile-level-id` carries this, which is how a negotiated section and a
+ * configured track are compared.
+ */
+export const PROFILE_IDC: Readonly<Record<string, number>> = Object.freeze({ constrained_baseline: 66, main: 77, high: 100 });
+
 export const VIDEO_BACKENDS = Object.freeze({
   fixture: { profiles: ['constrained_baseline'], bitrate: [1, 100_000_000] },
   l4t_v4l2: { profiles: ['constrained_baseline', 'main', 'high'], bitrate: [64_000, 100_000_000] },
@@ -42,7 +50,10 @@ function videoSettings(value: unknown): VideoSettings {
  */
 function videoBinding(name: string, value: unknown, limits: VideoLimits): VideoBinding {
   const path = `video_tracks.${name}`;
-  string(name, /^[A-Za-z][A-Za-z0-9_-]*$/, path);
+  // The worker names its ROS node after the track, and ROS rejects anything but letters, digits and
+  // underscores. Allowing a hyphen here would pass the startup probe, which creates no node, and
+  // fail only once the first viewer subscribed.
+  string(name, /^[A-Za-z][A-Za-z0-9_]*$/, path);
   const map = record(value, ['ros_topic', 'ros_type', 'ros_qos', 'input', 'encoder', 'access'], path);
   // A video source is one ROS subscription; unlike `topics` the key is a short public label, so the
   // ROS name is always explicit.
@@ -156,10 +167,14 @@ export function parseVideoConfig(source: string, topics: BridgeConfig['topics'],
   const document = readDocument(source, maxBytes);
   const map = record(document, Object.keys(Object(document)), '$');
   // Video is opt-in and all-or-nothing: settings without tracks (or the reverse) is a mistake, not a
-  // half-configured deployment we should silently accept.
-  if (map.video === undefined && map.video_tracks === undefined) return undefined;
-  if (map.video === undefined || map.video_tracks === undefined) throw new ConfigError('video', 'video and video_tracks must be configured together');
-  const limits = videoLimits(record(map.limits, Object.keys(Object(map.limits)), 'limits').video);
+  // half-configured deployment we should silently accept. `limits.video` counts as one of the three,
+  // so a document carrying only that fails rather than starting with no media plane at all.
+  const bounds = record(map.limits, Object.keys(Object(map.limits)), 'limits').video;
+  if (map.video === undefined && map.video_tracks === undefined && bounds === undefined) return undefined;
+  if (map.video === undefined || map.video_tracks === undefined || bounds === undefined) {
+    throw new ConfigError('video', 'video, video_tracks and limits.video must be configured together');
+  }
+  const limits = videoLimits(bounds);
   const tracks = videoBindings(map.video_tracks, limits);
   // The two planes have different size limits, authorization and queue behaviour. Serving one ROS
   // topic through both would make the effective contract depend on which path a client used.

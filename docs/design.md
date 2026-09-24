@@ -367,6 +367,13 @@ reconnect does not restart the pipeline. Viewers of one source share a single en
 viewer joining mid-stream triggers a keyframe. A slot binds to a track for the session: reusing a
 mid for a different source would change resolution and parameter sets underneath a decoder.
 
+`limits.video.max_pipelines` bounds how many encoders run at once, counting a source still inside its
+grace window because its encoder is still running. Reaching it refuses the subscription rather than
+starting another encoder, since quietly exceeding a configured resource limit is worse than a peer
+being told it cannot watch a third stream yet. A track also binds only to a section negotiated for
+the profile it produces; where the offer carries sections with different profiles, the matching one
+is taken rather than the first one free.
+
 RTP is never queued. Packets are fanned out as they arrive and dropped if a peer cannot take them,
 because a late frame is worth less than the next one. RTCP PLI is forwarded to the encoder as a
 backend-independent keyframe request, rate limited by `video.pli_min_interval_ms` so a failing

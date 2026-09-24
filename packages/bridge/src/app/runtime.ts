@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { parseBridgeConfig, parseVideoConfig } from '../config/index.js';
+import { parseBridgeConfig, parseVideoConfig, PROFILE_IDC } from '../config/index.js';
 import { MediaService, timerSchedule } from '../media/index.js';
 import { TopicRosAdapter } from '../ros/adapter.js';
 import { CommandGuard } from '../session/command-guard.js';
@@ -88,6 +88,8 @@ export async function startApp(settings: AppSettings, factories: AppFactories) {
               catalog: () => service.catalog(watchable),
               /** Check watch permission. Input: track name; returns whether the scope was granted. */
               authorize: (track: string) => videoConfig!.tracks.some(binding => binding.name === track && watchable(binding)),
+              /** Report what profile a track produces. Input: track name; returns its profile_idc. */
+              profileIdc: (track: string) => PROFILE_IDC[videoConfig!.tracks.find(binding => binding.name === track)!.encoder.profile],
               /** Start delivering to a viewer. Inputs: track name and viewer; returns void. */
               attach: (track, viewer) => service.attach(track, viewer),
               /** Stop delivering to a viewer. Inputs: track name and viewer; returns void. */

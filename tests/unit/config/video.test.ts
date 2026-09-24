@@ -68,9 +68,13 @@ test('treats an absent media plane as no video at all', () => {
   assert.equal(parseVideoConfig(JSON.stringify(value), topicsOf(value)), undefined);
 });
 
-test('rejects settings and tracks configured apart', () => {
+test('rejects settings, tracks and limits configured apart', () => {
   rejects(value => { delete value.video; }, 'video');
   rejects(value => { delete value.video_tracks; }, 'video');
+  // Limits alone used to disable the plane silently, which hides a mistyped or partially applied
+  // deployment behind a bridge that simply serves no video.
+  rejects(value => { delete value.video; delete value.video_tracks; }, 'video');
+  rejects(value => { delete value.limits.video; }, 'video');
 });
 
 test('allows separate tracks to select different backends', () => {
@@ -88,6 +92,9 @@ test('rejects unknown fields, track names and ROS contracts', () => {
   rejects(value => { value.video.unexpected = 1; }, 'video.unexpected');
   rejects(value => { value.video_tracks.front.unexpected = 1; }, 'video_tracks.front.unexpected');
   rejects(value => { value.video_tracks['9bad'] = value.video_tracks.front; delete value.video_tracks.front; }, 'video_tracks.9bad');
+  // The worker names its ROS node after the track, and ROS rejects a hyphen. Accepting one here
+  // would pass the startup probe and fail only when the first viewer subscribed.
+  rejects(value => { value.video_tracks['front-camera'] = value.video_tracks.front; delete value.video_tracks.front; }, 'video_tracks.front-camera');
   rejects(value => { value.video_tracks.front.ros_topic = 'relative'; }, 'video_tracks.front.ros_topic');
   rejects(value => { value.video_tracks.front.ros_type = 'sensor_msgs/msg/CompressedImage'; }, 'video_tracks.front.ros_type');
   rejects(value => { value.video_tracks.front.access.subscribe_scope = 'bad scope'; }, 'video_tracks.front.access.subscribe_scope');

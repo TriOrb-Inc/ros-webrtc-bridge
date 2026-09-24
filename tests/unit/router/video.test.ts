@@ -6,12 +6,13 @@ import type { Viewer } from '../../../packages/bridge/src/media/types.js';
 import type { Wire } from '../../../packages/bridge/src/router/types.js';
 import { fixture as sessionFixture } from './fixtures.js';
 
-/** Build a negotiated slot. @param mid SDP media identifier @returns Slot plus what it observed */
-function slot(mid: string) {
+/** Build a negotiated slot. @param mid SDP media identifier @param profileLevelId Negotiated profile @returns Slot plus what it observed */
+function slot(mid: string, profileLevelId = '42e01f') {
   const written: Buffer[] = [];
   let keyframe: (() => void) | undefined;
   const value: VideoSlot = {
     mid,
+    profileLevelId,
     write(packet) { written.push(packet); },
     onKeyframeRequest(callback) { keyframe = callback; },
     stop() {},
@@ -31,6 +32,7 @@ function fixture(allowed: readonly string[] = ['front', 'rear']) {
     maxSlots: 2,
     catalog: () => [...permitted].map(track => ({ track, codec: 'h264' })),
     authorize: track => permitted.has(track),
+    profileIdc: () => 66,
     attach(track, viewer) { attached.push(track); viewers.set(track, viewer); },
     detach(track) { detached.push(track); },
     requestKeyframe(track) { keyframes.push(track); },
@@ -159,6 +161,7 @@ function session() {
     maxSlots: 1,
     catalog: () => [{ track: 'front', codec: 'h264' }],
     authorize: () => true,
+    profileIdc: () => 66,
     attach(track, viewer) { viewers.set(track, viewer); },
     detach() {},
     requestKeyframe() {},
@@ -186,4 +189,60 @@ test('contains a media-plane event that arrives after the session ended', () => 
   const after = s.f.output.length;
   s.viewer().state('failed');
   assert.equal(s.f.output.length, after, 'a closed session sends nothing, and does not throw');
+});
+
+test('leaves a refused subscription retryable', () => {
+  // The media plane refuses an attachment when the encoder concurrency bound is reached. The peer
+  // must not be left looking subscribed to a track it is not receiving.
+  let refuse = true;
+  const attached: string[] = [];
+  const access: VideoAccess = {
+    maxSlots: 1,
+    catalog: () => [{ track: 'front', codec: 'h264' }],
+    authorize: () => true,
+    profileIdc: () => 66,
+    attach(track) { if (refuse) throw new Error('video_pipeline_limit'); attached.push(track); },
+    detach() {},
+    requestKeyframe() {},
+  };
+  const router = new VideoRouter(access, [slot('0').value], () => {});
+  const subscribe = { v: 1, op: 'video.subscribe', id: 'r1', track: 'front' };
+  assert.throws(() => router.operation(subscribe, 'r1'), new Error('video_pipeline_limit'));
+  assert.deepEqual(attached, []);
+
+  refuse = false;
+  const response = router.operation({ ...subscribe, id: 'r2' }, 'r2');
+  assert.deepEqual(attached, ['front'], 'the retry attached for real');
+  assert.equal(response.mid, '0', 'and reused the slot already bound to the track');
+});
+
+test('binds a track only to a section negotiated for its profile', () => {
+  // The offer may carry sections with different profiles. Handing a high-profile stream to a section
+  // the decoder negotiated as baseline is exactly the mismatch a browser cannot recover from.
+  const attached: string[] = [];
+  const idc: Record<string, number> = { front: 100, rear: 66, mast: 77 };
+  const access: VideoAccess = {
+    maxSlots: 2,
+    catalog: () => Object.keys(idc).map(track => ({ track, codec: 'h264' })),
+    authorize: () => true,
+    profileIdc: track => idc[track],
+    attach(track) { attached.push(track); },
+    detach() {},
+    requestKeyframe() {},
+  };
+  // Baseline first, high second: a track must reach past the first free section to the right one.
+  const slots = [slot('0', '42e01f'), slot('1', '640028')];
+  const router = new VideoRouter(access, slots.map(entry => entry.value), () => {});
+
+  assert.equal(router.operation({ v: 1, op: 'video.subscribe', id: 'r1', track: 'front' }, 'r1').mid, '1');
+  assert.equal(router.operation({ v: 1, op: 'video.subscribe', id: 'r2', track: 'rear' }, 'r2').mid, '0');
+  assert.deepEqual(attached, ['front', 'rear']);
+
+  // No section left that a main-profile track could fill, which is a mismatch rather than a shortage.
+  assert.throws(() => router.operation({ v: 1, op: 'video.subscribe', id: 'r3', track: 'mast' }, 'r3'),
+    new Error('video_slot_limit'));
+
+  const single = new VideoRouter(access, [slot('0', '42e01f').value], () => {});
+  assert.throws(() => single.operation({ v: 1, op: 'video.subscribe', id: 'r4', track: 'mast' }, 'r4'),
+    new Error('video_profile_mismatch'));
 });

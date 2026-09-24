@@ -60,6 +60,10 @@ function frames(onPacket: (packet: Buffer) => void): (chunk: Buffer) => void {
 export function createWorkerFactory(port: WorkerPort): MediaSourceFactory {
   return (binding: VideoBinding): MediaSource => {
     let child: WorkerProcess | undefined;
+    // An exit we asked for is not a failure. Without this the normal shutdown of the last viewer's
+    // worker reports a failure after the fact, which drives the source to `failed` and - if a new
+    // viewer already started a replacement - stops that replacement instead.
+    let stopping = false;
 
     /**
      * Run the worker until it reports the awaited event or fails.
@@ -72,6 +76,7 @@ export function createWorkerFactory(port: WorkerPort): MediaSourceFactory {
       onFailed?: () => void): Promise<Record<string, unknown>> => new Promise((resolve, reject) => {
       const worker = port.spawn(binding, onPacket !== undefined);
       child = worker;
+      stopping = false;
       let settled = false;
       /** Settle once and report a failure after settling. @param error Reason @returns void */
       const fail = (error: Error): void => {
@@ -96,7 +101,7 @@ export function createWorkerFactory(port: WorkerPort): MediaSourceFactory {
       const readPacket = onPacket === undefined ? undefined : frames(onPacket);
       worker.onOutput(chunk => { try { readEvent(chunk); } catch (error) { fail(error as Error); } });
       worker.onRtp(chunk => { try { readPacket?.(chunk); } catch (error) { fail(error as Error); } });
-      worker.onExit(() => { fail(new Error('worker exited before it was asked to stop')); });
+      worker.onExit(() => { if (!stopping) fail(new Error('worker exited before it was asked to stop')); });
       worker.send(JSON.stringify({ v: CONTRACT_VERSION, ...request }) + '\n');
     });
 
@@ -119,6 +124,7 @@ export function createWorkerFactory(port: WorkerPort): MediaSourceFactory {
         const worker = child;
         child = undefined;
         if (worker === undefined) return;
+        stopping = true;
         await worker.stop(JSON.stringify({ v: CONTRACT_VERSION, op: 'shutdown' }) + '\n');
       },
     };

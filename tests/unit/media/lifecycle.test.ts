@@ -36,11 +36,11 @@ function encoder(behaviour: { startThrows?: boolean; stopThrows?: boolean; keyfr
     fail: () => fail?.() };
 }
 
-/** Build a service over one fixture-backed track. @param e Fake encoder @param tracks Bindings @returns Harness */
-function harness(e = encoder(), tracks = [binding()]) {
+/** Build a service over one fixture-backed track. @param e Fake encoder @param tracks Bindings @param limits Bound overrides @returns Harness */
+function harness(e = encoder(), tracks = [binding()], limits = {}) {
   const time = clockwork();
   let errors = 0;
-  const service = new MediaService({ config: videoConfig(tracks), backends: { fixture: e.factory },
+  const service = new MediaService({ config: videoConfig(tracks, limits), backends: { fixture: e.factory },
     clock: time.clock, schedule: time.schedule, onError: () => { errors++; } });
   return { service, time, encoder: e, errors: () => errors };
 }
@@ -252,4 +252,39 @@ test('counts delivered packets and keyframe requests for diagnostics', () => {
   h.encoder.emit();
   h.service.requestKeyframe('front');
   assert.deepEqual(h.service.diagnostics, [{ track: 'front', backend: 'fixture', state: 'active', viewers: 1, packets: 2, keyframeRequests: 1 }]);
+});
+
+test('runs no more encoders at once than the configuration allows', () => {
+  // `max_pipelines` is what protects the GPU and the host, and subscriptions to different tracks
+  // arrive independently, so nothing else can apply the bound.
+  const tracks = ['front', 'rear', 'mast'].map(name => binding({ name, rosTopic: `/camera/${name}/image_raw` }));
+  const h = harness(encoder(), tracks, { maxPipelines: 2 });
+  const watchers = [viewer(), viewer(), viewer()];
+  h.service.attach('front', watchers[0].sink);
+  h.service.attach('rear', watchers[1].sink);
+  assert.equal(h.encoder.state.started, 2);
+  assert.throws(() => { h.service.attach('mast', watchers[2].sink); }, new Error('video_pipeline_limit'));
+  assert.equal(h.encoder.state.started, 2, 'the refused attachment started no encoder');
+
+  // An unwatched source inside its grace window still holds an encoder, so it still counts.
+  h.service.detach('front', watchers[0].sink);
+  assert.throws(() => { h.service.attach('mast', watchers[2].sink); }, new Error('video_pipeline_limit'));
+
+  // Once it really stops, the slot is free again.
+  h.time.advance(5000);
+  h.service.attach('mast', watchers[2].sink);
+  assert.equal(h.encoder.state.started, 3);
+});
+
+test('lets a peer retry a track the media plane refused', () => {
+  // A refused attachment must not leave the source counting a viewer it never accepted.
+  const tracks = [binding(), binding({ name: 'rear', rosTopic: '/camera/rear/image_raw' })];
+  const h = harness(encoder(), tracks, { maxPipelines: 1 });
+  const first = viewer(), second = viewer();
+  h.service.attach('front', first.sink);
+  assert.throws(() => { h.service.attach('rear', second.sink); }, new Error('video_pipeline_limit'));
+  h.service.detach('front', first.sink);
+  h.time.advance(5000);
+  h.service.attach('rear', second.sink);
+  assert.equal(h.encoder.state.started, 2);
 });

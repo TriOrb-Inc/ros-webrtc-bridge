@@ -28,7 +28,7 @@ function fixture(stopThrows = false) {
     addSlot(offered) {
       added.push({ ...offered });
       const mid = String(added.length);
-      const slot: VideoSlot = { mid, write() {}, onKeyframeRequest() {}, stop() { stopped.push(mid); if (stopThrows) throw new Error('stop failed'); } };
+      const slot: VideoSlot = { mid, profileLevelId: offered.profileLevelId, write() {}, onKeyframeRequest() {}, stop() { stopped.push(mid); if (stopThrows) throw new Error('stop failed'); } };
       return slot;
     },
   };

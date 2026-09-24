@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { request } from 'node:https';
@@ -125,7 +125,17 @@ async function verify(distro: 'humble' | 'jazzy', backend: Backend, mode: 'verif
     // The replay backend and the real encoders need different configuration and different wiring,
     // and only the L4T one needs anything from the host.
     const replay = backend === 'fixture';
-    const configFile = replay ? 'connection-video.yaml' : 'hardware-video.yaml';
+    let configPath = '/bridge/tests/ros/connection-video.yaml';
+    if (!replay) {
+      // The committed hardware configuration names one backend. Substituting the requested one keeps
+      // a single source of truth; without it a run asked for `openh264` would start NVENC and write
+      // the result under an `openh264` evidence filename, which is worse than failing.
+      const template = await readFile(resolve('tests/ros/hardware-video.yaml'), 'utf8');
+      const configured = template.replace('backend: l4t_v4l2', `backend: ${backend}`);
+      assert.ok(backend === 'l4t_v4l2' || configured !== template, 'hardware configuration no longer names a substitutable backend');
+      await writeFile(join(input, 'video.yaml'), configured, { mode: 0o644 });
+      configPath = '/run/bridge/video.yaml';
+    }
     const encoderArgs = replay
       ? ['--env', 'BRIDGE_VIDEO_FIXTURE=/bridge/tests/fixtures/video/h264-320x240.rtp']
       : ['--env', 'BRIDGE_VIDEO_WORKER=/bridge/worker/media_worker.py',
@@ -134,7 +144,7 @@ async function verify(distro: 'humble' | 'jazzy', backend: Backend, mode: 'verif
     owned.push(gateway);
     await run('gateway-start', 'docker', ['run', ...platformArgs, '--init', '-d', '--name', gateway, ...rosArgs,
       '-v', `${input}:/run/bridge:ro`, '--env', 'BRIDGE_CREDENTIAL',
-      '--env', `BRIDGE_CONFIG=/bridge/tests/ros/${configFile}`, '--env', 'BRIDGE_TLS_KEY=/run/bridge/key.pem',
+      '--env', `BRIDGE_CONFIG=${configPath}`, '--env', 'BRIDGE_TLS_KEY=/run/bridge/key.pem',
       '--env', 'BRIDGE_TLS_CERT=/run/bridge/cert.pem', '--env', 'BRIDGE_HOST=0.0.0.0', '--env', 'BRIDGE_PORT=7443',
       '--env', 'BRIDGE_SUBSCRIBE_TOPICS=/output', '--env', 'BRIDGE_VIDEO_SCOPES=video.front,video.rear',
       ...encoderArgs,

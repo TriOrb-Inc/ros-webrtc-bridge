@@ -28,12 +28,15 @@ export interface MediaTransport {
  * @param peer PeerConnection being answered, before the offer is applied.
  * @returns A slot the media plane writes complete RTP packets into.
  */
-export function videoSlot(transport: MediaTransport, peer: Peer): VideoSlot {
+export function videoSlot(transport: MediaTransport, peer: Peer,
+  offered: { readonly payloadType: number; readonly profileLevelId: string }): VideoSlot {
   const track = new transport.MediaStreamTrack({ kind: 'video' });
   const transceiver = peer.addTransceiver!(track, { direction: 'sendonly' });
   return {
     // The mid is assigned during negotiation, so it is read when answering, not when created.
     get mid(): string { return transceiver.mid ?? ''; },
+    // Kept so a track can only be bound to a section whose profile it actually produces.
+    profileLevelId: offered.profileLevelId,
     /** Hand one complete RTP packet to the peer. Input: packet; returns void. */
     write(packet: Buffer): void { track.writeRtp(packet); },
     /** Forward the decoder's keyframe requests. Input: callback; returns void. */
@@ -169,7 +172,7 @@ export async function launch(env: NodeJS.ProcessEnv, loader: typeof loadModule =
     // Declaring the video codec here is what lets werift negotiate a payload type with the browser.
     makePeer: () => new transport.RTCPeerConnection({ iceServers: [], codecs: { video: [transport.useH264({})] } }),
     videoBackends,
-    makeVideoSlot: peer => videoSlot(transport, peer),
+    makeVideoSlot: (peer, offered) => videoSlot(transport, peer, offered),
     listen: handler => listenHttps(key, cert, host, port, handler),
     clock: () => performance.now(), onError,
   });

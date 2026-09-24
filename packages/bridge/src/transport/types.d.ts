@@ -55,6 +55,8 @@ export interface RouterPort {
 export interface VideoSlot {
   /** SDP media identifier of the answered section, e.g. "1". Sent to the client so it can match receivers. */
   readonly mid: string;
+  /** The `profile-level-id` this section was negotiated with, e.g. "42e01f". */
+  readonly profileLevelId: string;
   /** Hand a complete RTP packet to the peer. Always a Buffer: the sender rewrites the header in place. */
   write(packet: Buffer): void;
   /** Request an IDR from whatever produces this stream, e.g. after RTCP PLI. */

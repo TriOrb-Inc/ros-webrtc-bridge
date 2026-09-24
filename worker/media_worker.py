@@ -300,6 +300,11 @@ def run(track, spec, rtp):
     try:
         while not stopping.is_set():
             rclpy.spin_once(node, timeout_sec=0.1)
+            # The bus watch is attached to the default GLib context, which nothing else here drives.
+            # Without this the pipeline can fail asynchronously - the encoder losing its device, say -
+            # and the worker would keep emitting healthy-looking stats over frozen video.
+            while GLib.MainContext.default().iteration(False):
+                pass
             if encoder.failure is not None:
                 emit(op='failed', track=track, cause=encoder.failure)
                 break
