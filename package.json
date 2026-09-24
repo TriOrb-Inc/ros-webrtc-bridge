@@ -21,6 +21,10 @@
     "test:performance": "npm run build && node .runtime/build/tests/performance/run.js",
     "test:soak": "npm run build && PERFORMANCE_MODE=soak node .runtime/build/tests/performance/run.js",
     "test:transport": "node vendor/werift-datachannel/smoke.mjs",
+    "test:transport:media": "node vendor/werift-datachannel/media-smoke.mjs",
+    "test:video": "npm run build && node .runtime/build/tests/video/run.js",
+    "test:video:load": "npm run build && VIDEO_MODE=load node .runtime/build/tests/video/run.js",
+    "test:video:hardware": "npm run build && VIDEO_BACKEND=${VIDEO_BACKEND:-l4t_v4l2} node .runtime/build/tests/video/run.js",
     "bridge": "node -e \"import('./.runtime/build/packages/bridge/src/app/cli.js').then(m=>m.main()).catch(()=>{console.error('Bridge startup failed');process.exitCode=1})\""
   },
   "dependencies": {

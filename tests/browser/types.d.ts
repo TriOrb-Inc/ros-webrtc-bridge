@@ -49,3 +49,58 @@ export interface BrowserHealthOptions {
 export interface ScenarioInput extends BrowserConnectionOptions { readonly timeoutMs: number }
 export type ScenarioReport = Omit<BrowserConnectionReport, 'browserVersion' | 'health'>;
 export type ScenarioResult = ScenarioReport | { readonly failure: string };
+
+/** Runtime settings for the video scenario. Credentials never leave the page. */
+export interface VideoScenarioInput {
+  readonly url: string;
+  readonly credential: string;
+  readonly slots: number;
+  readonly timeoutMs: number;
+}
+
+/** Video E2E measurements, or a fixed failure classification. Never carries connection details. */
+export type VideoScenarioResult = { readonly failure: string; readonly diagnostics?: Record<string, number | string> } | {
+  readonly framesDecoded: number;
+  readonly frameWidth: number;
+  readonly frameHeight: number;
+  readonly keyFramesDecoded: number;
+  readonly mid: string;
+  readonly track: string;
+  readonly slots: number;
+  readonly assertions: {
+    readonly silentBeforeSubscribe: 'PASS';
+    readonly decodedAfterSubscribe: 'PASS';
+    readonly stoppedAfterUnsubscribe: 'PASS';
+    readonly resumedOnSameSection: 'PASS';
+  };
+};
+
+/**
+ * Runtime settings for one load phase. Credentials never leave the page.
+ *
+ * The phases run separately so resident memory can be sampled between them: an encoder's libraries
+ * are loaded once, and counting that one-time cost as growth would report every hardware run as a
+ * leak.
+ */
+export interface VideoLoadInput {
+  readonly url: string;
+  readonly credential: string;
+  readonly phase: 'viewers' | 'cycles';
+  readonly viewers: number;
+  readonly cycles: number;
+  readonly holdMs: number;
+  readonly timeoutMs: number;
+}
+
+/** Measurements for one load phase, or a fixed failure classification. */
+export type VideoLoadResult = { readonly failure: string; readonly diagnostics?: Record<string, number | string> }
+  | {
+    readonly phase: 'viewers';
+    readonly viewers: { readonly count: number; readonly framesDecoded: number[]; readonly survivorsAdvanced: number };
+    readonly assertions: { readonly everyViewerDecoded: 'PASS'; readonly departureDidNotDisturbOthers: 'PASS' };
+  }
+  | {
+    readonly phase: 'cycles';
+    readonly cycles: { readonly count: number; readonly framesDecoded: number[] };
+    readonly assertions: { readonly everyCycleDecoded: 'PASS'; readonly lastCycleMatchedFirst: 'PASS' };
+  };

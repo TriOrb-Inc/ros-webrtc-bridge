@@ -1,0 +1,40 @@
+# Real-camera configuration for hardware verification on a Jetson with live sensor topics.
+#
+# Geometry matches what the cameras actually publish; a frame that differs is rejected rather than
+# reinterpreted, so these numbers are a contract with the source, not a hint.
+version: 1
+robot_id: camera-test
+limits:
+  max_peers: 4
+  max_message_bytes: 16384
+  max_peer_queue_bytes: 262144
+  max_channel_buffered_bytes: 65536
+  video:
+    max_tracks: 2
+    max_pipelines: 2
+    max_slots_per_peer: 2
+    max_width: 1920
+    max_height: 1300
+    max_framerate: 30
+topics:
+  /battery:
+    ros_topic: /battery/status
+    ros_type: std_msgs/msg/String
+    direction: ros_to_web
+    ros_qos: { reliability: reliable, durability: volatile, history: keep_last, depth: 1 }
+    delivery: reliable
+    max_rate_hz: 5
+    queue: { policy: fifo, max_messages: 4 }
+video:
+  start_timeout_ms: 15000
+  stop_grace_ms: 2000
+  pli_min_interval_ms: 500
+video_tracks:
+  front:
+    ros_topic: /camera0
+    ros_type: sensor_msgs/msg/Image
+    # The publishers are best effort; a reliable subscription would receive nothing at all.
+    ros_qos: { reliability: best_effort, durability: volatile, history: keep_last, depth: 1 }
+    input: { encoding: mono8, width: 1600, height: 1300, framerate: 6 }
+    encoder: { codec: h264, backend: openh264, bitrate: 2000000, keyframe_interval: 12, profile: constrained_baseline }
+    access: { subscribe_scope: video.front }

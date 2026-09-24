@@ -1,0 +1,51 @@
+# Video plane configuration for the containerised mock environment.
+#
+# The track names the topic the mock ROS publisher writes to, so the ROS graph is exercised for real:
+# the source exists, is discovered, and its QoS is negotiated. The encoder is the `fixture` backend,
+# which replays a committed recording, so this configuration verifies everything except encoding
+# itself and runs on a host with no GPU and no GStreamer.
+#
+# Swapping `backend` to a GStreamer one turns the same file into a hardware test.
+version: 1
+robot_id: video-test
+limits:
+  max_peers: 8
+  max_message_bytes: 16384
+  max_peer_queue_bytes: 262144
+  max_channel_buffered_bytes: 65536
+  video:
+    max_tracks: 2
+    max_pipelines: 2
+    max_slots_per_peer: 2
+    max_width: 1920
+    max_height: 1080
+    max_framerate: 60
+topics:
+  /output:
+    ros_topic: /bridge_test/out
+    ros_type: std_msgs/msg/String
+    direction: ros_to_web
+    ros_qos: { reliability: reliable, durability: volatile, history: keep_last, depth: 10 }
+    delivery: reliable
+    max_rate_hz: 20
+    queue: { policy: fifo, max_messages: 16 }
+video:
+  start_timeout_ms: 5000
+  # Short enough that a test can observe the stop without waiting, long enough to survive a reconnect.
+  stop_grace_ms: 1000
+  pli_min_interval_ms: 200
+video_tracks:
+  front:
+    ros_topic: /bridge_test/image_raw
+    ros_type: sensor_msgs/msg/Image
+    ros_qos: { reliability: best_effort, durability: volatile, history: keep_last, depth: 1 }
+    input: { encoding: rgb8, width: 320, height: 240, framerate: 15 }
+    encoder: { codec: h264, backend: fixture, bitrate: 1000000, keyframe_interval: 15, profile: constrained_baseline }
+    access: { subscribe_scope: video.front }
+  rear:
+    ros_topic: /bridge_test/rear/image_raw
+    ros_type: sensor_msgs/msg/Image
+    ros_qos: { reliability: best_effort, durability: volatile, history: keep_last, depth: 1 }
+    input: { encoding: rgb8, width: 320, height: 240, framerate: 15 }
+    encoder: { codec: h264, backend: fixture, bitrate: 1000000, keyframe_interval: 15, profile: constrained_baseline }
+    access: { subscribe_scope: video.rear }

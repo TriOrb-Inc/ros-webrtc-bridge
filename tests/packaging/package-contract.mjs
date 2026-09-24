@@ -66,7 +66,7 @@ for (const dependency of ['nodejs', 'launch', 'launch_ros']) {
 
 // Do not add runtime exec dependencies for interfaces determined only by configuration. Restrict
 // test_depend to interface packages actually used by smoke tests, rather than making every example type a core dependency.
-const yamlFiles = ['examples/bridge.yaml', 'examples/connection.yaml'];
+const yamlFiles = ['examples/bridge.yaml', 'examples/bridge-video.yaml', 'examples/connection.yaml'];
 const yamlSources = await Promise.all(yamlFiles.map(path => text(path)));
 const smokeInterfacePackages = interfacePackages([yamlSources[yamlFiles.indexOf('examples/connection.yaml')]]);
 const runtimeDependencies = new Set(tags(packageXml, 'exec_depend'));
