@@ -3,9 +3,45 @@ import { createServer } from 'node:https';
 import { createSecureContext } from 'node:tls';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createRclnodejsBackend, type RclModule } from '../ros/rclnodejs.js';
-import type { Peer } from '../transport/types.js';
+import { spawn } from 'node:child_process';
+import { createFixtureFactory, createWorkerFactory, timerSchedule } from '../media/index.js';
+import type { MediaSourceFactory, WorkerPort, WorkerProcess } from '../media/types.js';
+import type { MediaTrack, Peer, VideoSlot } from '../transport/types.js';
 import { startApp } from './runtime.js';
 import { inspectConfig } from './registry.js';
+
+/** Werift media surface used to answer one receive-only video section. Tests inject the same shape. */
+export interface MediaTransport {
+  MediaStreamTrack: new (props: { kind: 'video' }) => MediaTrack;
+  useH264: (props: Record<string, unknown>) => unknown;
+}
+
+/**
+ * Attach a send-only H.264 transceiver to a peer.
+ *
+ * The codec is not assigned here. Werift matches the offer against the list the PeerConnection was
+ * built with and stamps the negotiated payload type onto every packet; assigning codecs to the
+ * transceiver instead leaves the browser receiving a payload type it never agreed to, which it
+ * counts as arriving packets that never become frames.
+ *
+ * @param transport Werift media constructors.
+ * @param peer PeerConnection being answered, before the offer is applied.
+ * @returns A slot the media plane writes complete RTP packets into.
+ */
+export function videoSlot(transport: MediaTransport, peer: Peer): VideoSlot {
+  const track = new transport.MediaStreamTrack({ kind: 'video' });
+  const transceiver = peer.addTransceiver!(track, { direction: 'sendonly' });
+  return {
+    // The mid is assigned during negotiation, so it is read when answering, not when created.
+    get mid(): string { return transceiver.mid ?? ''; },
+    /** Hand one complete RTP packet to the peer. Input: packet; returns void. */
+    write(packet: Buffer): void { track.writeRtp(packet); },
+    /** Forward the decoder's keyframe requests. Input: callback; returns void. */
+    onKeyframeRequest(callback: () => void): void { transceiver.sender.onPictureLossIndication.subscribe(callback); },
+    /** Release the track. No input; returns void. */
+    stop(): void { track.stop(); },
+  };
+}
 
 /** Read a positive integer from environment configuration. Example: ('7443',7443) returns 7443; invalid values fail startup. */
 export function numberOption(value: string | undefined, fallback: number): number {
@@ -19,6 +55,45 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name];
   if (!value) throw new Error(`missing_environment:${name}`);
   return value;
+}
+
+/**
+ * Launch media workers as child processes.
+ * @param executable Worker program, e.g. an installed `media_worker.py` wrapper.
+ * @param args Fixed leading arguments, e.g. an interpreter and script path.
+ * @returns A port the media plane uses without knowing how a worker is started.
+ */
+export function workerPort(executable: string, args: readonly string[]): WorkerPort {
+  return {
+    /** Start one worker. Inputs: binding and whether RTP is expected; returns the process. */
+    spawn(binding, streaming) {
+      // RTP travels on an inherited descriptor rather than a socket, so no other local process can
+      // inject into a viewer's stream, and there is no port to allocate or leak.
+      const child = spawn(executable, [...args, '--track', binding.name],
+        { stdio: ['pipe', 'pipe', 'inherit', streaming ? 'pipe' : 'ignore'] });
+      // stdin and stdout are always pipes above, so the streams exist for the life of the process.
+      const input = child.stdin!, output = child.stdout!;
+      // Writing to a worker that has already gone breaks the pipe. Terminate what may be left rather
+      // than letting the stream error reach the process as an unhandled event.
+      input.on('error', () => { child.kill('SIGTERM'); });
+      const process: WorkerProcess = {
+        send(line) { input.write(line); },
+        onOutput(callback) { output.on('data', callback); },
+        onRtp(callback) { (child.stdio[3] as NodeJS.ReadableStream | null)?.on('data', callback); },
+        onExit(callback) { child.once('exit', callback); },
+        /** Ask the worker to stop, then make sure it is gone. Input: shutdown line; returns a Promise. */
+        async stop(shutdown) {
+          if (child.exitCode !== null || child.signalCode !== null) return;
+          const ended = new Promise<void>(resolve => child.once('exit', () => resolve()));
+          input.end(shutdown);
+          // A worker that ignores the request must not keep an encoder or ROS node alive.
+          const forced = new Promise<void>(resolve => setTimeout(() => { child.kill('SIGKILL'); resolve(); }, 3000));
+          await Promise.race([ended, forced.then(() => ended)]);
+        },
+      };
+      return process;
+    },
+  };
 }
 
 /** Native module loading boundary. Example input: 'node:path'; output: module namespace. */
@@ -63,22 +138,38 @@ export async function launch(env: NodeJS.ProcessEnv, loader: typeof loadModule =
   // Empty allowlists deny by default. Fix permissions granted to the single credential at process startup.
   const subscribeTopics = (env.BRIDGE_SUBSCRIBE_TOPICS ?? '').split(',').filter(Boolean);
   const publishScopes = (env.BRIDGE_PUBLISH_SCOPES ?? '').split(',').filter(Boolean);
+  const videoScopes = (env.BRIDGE_VIDEO_SCOPES ?? '').split(',').filter(Boolean);
+  // The fixture backend replays a recording instead of encoding, so its source is a deployment
+  // detail like the TLS material rather than part of the public configuration.
+  const videoBackends: Record<string, MediaSourceFactory> = {};
+  if (env.BRIDGE_VIDEO_FIXTURE !== undefined) {
+    videoBackends.fixture = createFixtureFactory(await readFile(env.BRIDGE_VIDEO_FIXTURE), timerSchedule);
+  }
+  // Every GStreamer backend runs in the same worker program; which one it builds comes from the
+  // track's configuration, so adding a backend never changes this wiring.
+  if (env.BRIDGE_VIDEO_WORKER !== undefined) {
+    const factory = createWorkerFactory(workerPort(env.BRIDGE_VIDEO_WORKER_COMMAND ?? 'python3', [env.BRIDGE_VIDEO_WORKER]));
+    for (const backend of ['l4t_v4l2', 'openh264']) videoBackends[backend] = factory;
+  }
   const args: unknown = JSON.parse(env.BRIDGE_ROS_ARGS ?? '[]');
   if (!Array.isArray(args) || args.some(value => typeof value !== 'string')) throw new Error('invalid_ros_args');
-  const settings = { credential, configSource, maxConfigBytes, subscribeTopics, publishScopes,
+  const settings = { credential, configSource, maxConfigBytes, subscribeTopics, publishScopes, videoScopes,
     timeoutMs: numberOption(env.BRIDGE_NEGOTIATION_TIMEOUT_MS, 30000), maxSdpBytes: numberOption(env.BRIDGE_MAX_SDP_BYTES, 262144),
     requestTimeoutMs: numberOption(env.BRIDGE_REQUEST_TIMEOUT_MS, 10000), routerLimits: {
       maxHandles: numberOption(env.BRIDGE_MAX_HANDLES, 64), maxRequests: numberOption(env.BRIDGE_MAX_REQUESTS, 64),
       requestTtlMs: numberOption(env.BRIDGE_REQUEST_TTL_MS, 30000), maxControlRateHz: numberOption(env.BRIDGE_MAX_CONTROL_RATE_HZ, 100) } };
   const spinTimeoutMs = numberOption(env.BRIDGE_SPIN_TIMEOUT_MS, 10);
   const rcl = (await loader('rclnodejs') as { default: RclModule }).default;
-  const transport = await loader('@ros-webrtc/werift-datachannel') as { RTCPeerConnection: new (options: object) => Peer };
+  const transport = await loader('@ros-webrtc/werift-datachannel') as MediaTransport & { RTCPeerConnection: new (options: object) => Peer };
   // Public errors expose only fixed classifications, without payloads, SDP, or credentials.
   const onError = () => { console.log('Bridge resource or ROS callback failed'); };
   return startApp(settings, {
     initialize: () => createRclnodejsBackend(rcl, { nodeName: env.BRIDGE_NODE_NAME ?? 'ros_webrtc_gateway', namespace: '/', args,
       spinTimeoutMs, onError }),
-    makePeer: () => new transport.RTCPeerConnection({ iceServers: [] }),
+    // Declaring the video codec here is what lets werift negotiate a payload type with the browser.
+    makePeer: () => new transport.RTCPeerConnection({ iceServers: [], codecs: { video: [transport.useH264({})] } }),
+    videoBackends,
+    makeVideoSlot: peer => videoSlot(transport, peer),
     listen: handler => listenHttps(key, cert, host, port, handler),
     clock: () => performance.now(), onError,
   });

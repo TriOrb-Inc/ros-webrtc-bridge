@@ -18,6 +18,8 @@ After ament/colcon installation, `ros2 run ros_webrtc_bridge ros_webrtc_bridge` 
 | `BRIDGE_HOST` / `BRIDGE_PORT` | `127.0.0.1` / `7443` | HTTPS bind address |
 | `BRIDGE_SUBSCRIBE_TOPICS` | Empty | Comma-separated public Web names allowed for reading |
 | `BRIDGE_PUBLISH_SCOPES` | Empty | Comma-separated allowed `access.publish_scope` values |
+| `BRIDGE_VIDEO_SCOPES` | Empty | Comma-separated allowed `video_tracks.*.access.subscribe_scope` values |
+| `BRIDGE_VIDEO_FIXTURE` | Unset | Path to the RTP recording replayed by the `fixture` backend; required when a track selects it |
 | `BRIDGE_NODE_NAME` | `ros_webrtc_gateway` | ROS node name |
 | `BRIDGE_ROS_ARGS` | `[]` | JSON string array of ROS arguments, including remaps |
 | `BRIDGE_SPIN_TIMEOUT_MS` | `10` | rclnodejs spin timeout |
@@ -29,6 +31,17 @@ After ament/colcon installation, `ros2 run ros_webrtc_bridge ros_webrtc_bridge` 
 | `BRIDGE_MAX_REQUESTS` | `64` | Request cache/control queue entries per peer |
 | `BRIDGE_REQUEST_TTL_MS` | `30000` | Request cache lifetime |
 | `BRIDGE_MAX_CONTROL_RATE_HZ` | `100` | Control operation rate per peer |
+
+Video is opt-in. Without `video_tracks` the media plane is never created: offers containing an
+`m=video` section are rejected exactly as before, `video.*` operations stay unknown, and the
+`welcome` envelope gains no `video` key. With video configured, every selected encoder backend is
+probed before the HTTPS listener opens; an unavailable backend fails startup with the configuration
+path, track and backend named. See the [media plane](../media/README.md) and
+[examples/bridge-video.yaml](../../../../examples/bridge-video.yaml).
+
+The `fixture` backend replays a recorded stream instead of encoding, so its source is a deployment
+detail like the TLS material rather than part of the public configuration. `l4t_v4l2` and `openh264`
+are accepted by configuration but have no implementation in this build and fail the startup probe.
 
 YAML `limits` is authoritative for concurrent peers, message bytes, queues, and channel buffers. Guard leases use each binding's `command_guard.lease_ms`. Empty permission lists deny the corresponding operation. Publication also checks the explicit scope and binding direction. This startup mode provides fixed permissions for a single credential; JWT, per-user permission updates, and credential issuance services are unimplemented.
 

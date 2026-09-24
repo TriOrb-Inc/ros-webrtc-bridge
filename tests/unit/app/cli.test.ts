@@ -74,7 +74,10 @@ test('CFG-01 assemble the native facade and real HTTPS from CLI environment vari
   }
   const rcl = { Context, Node, QoS: class {}, MessageIntrospector: class { schema = definition; }, async init() {} };
   const loader = async (name: string) => name === 'rclnodejs' ? { default: rcl }
-    : { RTCPeerConnection: class { constructor() { peer = fakePeer(); return peer; } } };
+    // The transport facade must offer the same media surface the CLI uses, even for a
+    // DataChannel-only deployment: the video codec is declared when the peer is built.
+    : { RTCPeerConnection: class { constructor() { peer = fakePeer(); return peer; } },
+        MediaStreamTrack: class { writeRtp() {} stop() {} }, useH264: (props: object) => props };
   const env = { ...f.env, BRIDGE_PORT: String(port), BRIDGE_SUBSCRIBE_TOPICS: '/out', BRIDGE_PUBLISH_SCOPES: 'command' };
   const app = await launch(env, loader);
   assert.equal((await http(port, '/health')).status, 200);
