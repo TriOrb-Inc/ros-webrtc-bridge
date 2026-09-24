@@ -76,6 +76,20 @@ export function workerPort(executable: string, args: readonly string[]): WorkerP
         { stdio: ['pipe', 'pipe', 'inherit', streaming ? 'pipe' : 'ignore'] });
       // stdin and stdout are always pipes above, so the streams exist for the life of the process.
       const input = child.stdin!, output = child.stdout!;
+      // A program that cannot be spawned at all - a missing or non-executable worker - emits `error`
+      // and never `exit`. Treating both as one "gone" event keeps the probe reporting an actionable
+      // backend failure instead of waiting for a supervised exit that never arrives, and stops the
+      // unhandled emitter error from taking the bridge down.
+      const listeners: (() => void)[] = [];
+      let gone = false;
+      // Draining the list rather than guarding on a flag keeps a second departure harmless without
+      // a branch no test can reach: whichever event arrives first has already taken the listeners.
+      const depart = (): void => {
+        gone = true;
+        for (const listener of listeners.splice(0)) listener();
+      };
+      child.on('error', depart);
+      child.once('exit', depart);
       // Writing to a worker that has already gone breaks the pipe. Terminate what may be left rather
       // than letting the stream error reach the process as an unhandled event.
       input.on('error', () => { child.kill('SIGTERM'); });
@@ -83,11 +97,11 @@ export function workerPort(executable: string, args: readonly string[]): WorkerP
         send(line) { input.write(line); },
         onOutput(callback) { output.on('data', callback); },
         onRtp(callback) { (child.stdio[3] as NodeJS.ReadableStream | null)?.on('data', callback); },
-        onExit(callback) { child.once('exit', callback); },
+        onExit(callback) { if (gone) { callback(); return; } listeners.push(callback); },
         /** Ask the worker to stop, then make sure it is gone. Input: shutdown line; returns a Promise. */
         async stop(shutdown) {
-          if (child.exitCode !== null || child.signalCode !== null) return;
-          const ended = new Promise<void>(resolve => child.once('exit', () => resolve()));
+          if (gone) return;
+          const ended = new Promise<void>(resolve => { listeners.push(resolve); });
           input.end(shutdown);
           // A worker that ignores the request must not keep an encoder or ROS node alive.
           const forced = new Promise<void>(resolve => setTimeout(() => { child.kill('SIGKILL'); resolve(); }, 3000));
@@ -148,14 +162,15 @@ export async function launch(env: NodeJS.ProcessEnv, loader: typeof loadModule =
   if (env.BRIDGE_VIDEO_FIXTURE !== undefined) {
     videoBackends.fixture = createFixtureFactory(await readFile(env.BRIDGE_VIDEO_FIXTURE), timerSchedule);
   }
-  // Every GStreamer backend runs in the same worker program; which one it builds comes from the
-  // track's configuration, so adding a backend never changes this wiring.
-  if (env.BRIDGE_VIDEO_WORKER !== undefined) {
-    const factory = createWorkerFactory(workerPort(env.BRIDGE_VIDEO_WORKER_COMMAND ?? 'python3', [env.BRIDGE_VIDEO_WORKER]));
-    for (const backend of ['l4t_v4l2', 'openh264']) videoBackends[backend] = factory;
-  }
   const args: unknown = JSON.parse(env.BRIDGE_ROS_ARGS ?? '[]');
   if (!Array.isArray(args) || args.some(value => typeof value !== 'string')) throw new Error('invalid_ros_args');
+  // Every GStreamer backend runs in the same worker program; which one it builds comes from the
+  // track's configuration, so adding a backend never changes this wiring. The worker gets the same
+  // ROS arguments as the bridge, or it would resolve different topic names from the same deployment.
+  if (env.BRIDGE_VIDEO_WORKER !== undefined) {
+    const factory = createWorkerFactory(workerPort(env.BRIDGE_VIDEO_WORKER_COMMAND ?? 'python3', [env.BRIDGE_VIDEO_WORKER]), args as string[]);
+    for (const backend of ['l4t_v4l2', 'openh264']) videoBackends[backend] = factory;
+  }
   const settings = { credential, configSource, maxConfigBytes, subscribeTopics, publishScopes, videoScopes,
     timeoutMs: numberOption(env.BRIDGE_NEGOTIATION_TIMEOUT_MS, 30000), maxSdpBytes: numberOption(env.BRIDGE_MAX_SDP_BYTES, 262144),
     requestTimeoutMs: numberOption(env.BRIDGE_REQUEST_TIMEOUT_MS, 10000), routerLimits: {

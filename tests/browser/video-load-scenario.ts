@@ -48,9 +48,12 @@ export async function browserVideoLoadScenario(input: VideoLoadInput): Promise<V
     }
     await pc.setLocalDescription(await pc.createOffer());
     await until(() => pc.iceGatheringState === 'complete', 'ice_gathering');
+    // A gateway that accepts the connection and then stalls would otherwise hang here forever: the
+    // deadline is only consulted between awaits, and page.evaluate has no timeout of its own.
     const response = await fetch(`${input.url}/offer`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${input.credential}` },
       body: JSON.stringify({ type: 'offer', sdp: pc.localDescription!.sdp }),
+      signal: AbortSignal.timeout(Math.max(1000, deadline - performance.now())),
     });
     check(response.ok, 'offer_rejected');
     await pc.setRemoteDescription(await response.json() as RTCSessionDescriptionInit);

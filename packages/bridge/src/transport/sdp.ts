@@ -48,15 +48,22 @@ function videoSlot(lines: readonly string[]): OfferedVideo {
   if (!lines.includes('a=recvonly')) throw new Error('invalid_video_section');
   // Simulcast and RID change how many encodings a single slot carries; that is a separate feature.
   if (lines.some(line => line.startsWith('a=simulcast:') || line.startsWith('a=rid:'))) throw new Error('invalid_video_section');
+  // Only the first H.264 payload is considered, and it has to be one this bridge can serve.
+  //
+  // Picking a later payload would be a trap: the sender stamps packets with the first codec that
+  // survives negotiation, so an offer listing an unusable H.264 payload first would validate here
+  // and then go out with a payload type the browser never agreed to. That failure is invisible from
+  // this side - the peer counts packets and decodes none of them - so it is refused instead.
   for (const line of lines) {
     const rtpmap = /^a=rtpmap:(\d+) H264\/90000$/.exec(line);
     if (rtpmap === null) continue;
     const payloadType = Number(rtpmap[1]);
     const fmtp = lines.find(candidate => candidate.startsWith(`a=fmtp:${payloadType} `));
     // packetization-mode=1 is required: the payloader emits fragmented NAL units, which mode 0 forbids.
-    if (fmtp === undefined || !fmtp.includes('packetization-mode=1')) continue;
+    if (fmtp === undefined || !fmtp.includes('packetization-mode=1')) break;
     const profile = /profile-level-id=([0-9A-Fa-f]{6})/.exec(fmtp);
-    if (profile !== null) return Object.freeze({ payloadType, profileLevelId: profile[1].toLowerCase() });
+    if (profile === null) break;
+    return Object.freeze({ payloadType, profileLevelId: profile[1].toLowerCase() });
   }
   throw new Error('unsupported_video_codec');
 }

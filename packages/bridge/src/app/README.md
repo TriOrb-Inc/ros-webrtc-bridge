@@ -20,6 +20,8 @@ After ament/colcon installation, `ros2 run ros_webrtc_bridge ros_webrtc_bridge` 
 | `BRIDGE_PUBLISH_SCOPES` | Empty | Comma-separated allowed `access.publish_scope` values |
 | `BRIDGE_VIDEO_SCOPES` | Empty | Comma-separated allowed `video_tracks.*.access.subscribe_scope` values |
 | `BRIDGE_VIDEO_FIXTURE` | Unset | Path to the RTP recording replayed by the `fixture` backend; required when a track selects it |
+| `BRIDGE_VIDEO_WORKER` | Installed `worker/media_worker.py` | Media worker program for the GStreamer backends. The launcher names the installed copy; set this only to substitute another implementation of the [worker contract](../../../../worker/README.md) |
+| `BRIDGE_VIDEO_WORKER_COMMAND` | `python3` | Interpreter used to run the worker |
 | `BRIDGE_NODE_NAME` | `ros_webrtc_gateway` | ROS node name |
 | `BRIDGE_ROS_ARGS` | `[]` | JSON string array of ROS arguments, including remaps |
 | `BRIDGE_SPIN_TIMEOUT_MS` | `10` | rclnodejs spin timeout |

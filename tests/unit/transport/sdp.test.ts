@@ -80,11 +80,25 @@ test('requires an H.264 payload type this bridge can actually fill', () => {
   rejects(sdp(APPLICATION, [...head, 'a=rtpmap:96 H264/90000', 'a=fmtp:96 packetization-mode=1']), 1, 'unsupported_video_codec');
 });
 
-test('skips unusable payload types and takes the first complete one', () => {
-  const section = ['m=video 9 UDP/TLS/RTP/SAVPF 96 98', 'a=recvonly',
+test('takes the first H.264 payload and refuses an offer that leads with an unusable one', () => {
+  const usable = ['m=video 9 UDP/TLS/RTP/SAVPF 98 96', 'a=recvonly',
+    'a=rtpmap:98 H264/90000', 'a=fmtp:98 packetization-mode=1;profile-level-id=42e01f',
+    'a=rtpmap:96 H264/90000', 'a=fmtp:96 packetization-mode=0;profile-level-id=42e01f'];
+  assert.deepEqual(parseOffer(sdp(APPLICATION, usable), 1).video, [{ payloadType: 98, profileLevelId: '42e01f' }]);
+
+  // Reaching past a leading mode-0 payload would validate an offer this bridge then answers with a
+  // payload type the peer never agreed to: the sender stamps packets with the first negotiated
+  // codec, not the one chosen here, and the browser counts packets it cannot decode.
+  const leadsUnusable = ['m=video 9 UDP/TLS/RTP/SAVPF 96 98', 'a=recvonly',
     'a=rtpmap:96 H264/90000', 'a=fmtp:96 packetization-mode=0;profile-level-id=42e01f',
     'a=rtpmap:98 H264/90000', 'a=fmtp:98 packetization-mode=1;profile-level-id=42e01f'];
-  assert.deepEqual(parseOffer(sdp(APPLICATION, section), 1).video, [{ payloadType: 98, profileLevelId: '42e01f' }]);
+  rejects(sdp(APPLICATION, leadsUnusable), 1, 'unsupported_video_codec');
+
+  // The same applies when the leading payload simply has no profile to answer with.
+  const leadsProfileless = ['m=video 9 UDP/TLS/RTP/SAVPF 96 98', 'a=recvonly',
+    'a=rtpmap:96 H264/90000', 'a=fmtp:96 packetization-mode=1',
+    'a=rtpmap:98 H264/90000', 'a=fmtp:98 packetization-mode=1;profile-level-id=42e01f'];
+  rejects(sdp(APPLICATION, leadsProfileless), 1, 'unsupported_video_codec');
 });
 
 test('bounds the document structure independently of its byte size', () => {

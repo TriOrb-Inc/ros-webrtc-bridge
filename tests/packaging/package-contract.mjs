@@ -93,6 +93,12 @@ await access(resolve(root, 'scripts/credential-store.mjs'), constants.R_OK);
 assert.equal((await stat(resolve(root, 'scripts/credential-store.mjs'))).isFile(), true);
 assert.match(await text('CMakeLists.txt'), /install\(FILES scripts\/credential-store\.mjs\s+DESTINATION "share\/\$\{PROJECT_NAME\}\/scripts"/);
 
+// A GStreamer backend is unusable from an installed deployment unless its worker ships with the
+// bundle and the launcher names it: registering the backends depends on BRIDGE_VIDEO_WORKER.
+await access(resolve(root, 'worker/media_worker.py'), constants.R_OK);
+assert.match(await text('CMakeLists.txt'), /install\(FILES worker\/media_worker\.py\s+DESTINATION "\$\{ROS_WEBRTC_BRIDGE_LIB_DIR\}\/worker"/);
+assert.match(await text('scripts/ros_webrtc_bridge'), /BRIDGE_VIDEO_WORKER:-\$\{script_dir\}\/worker\/media_worker\.py/);
+
 // Credential fixtures must remain in the trap-cleaned secret tree even when the smoke test fails.
 const smoke = await text('tests/packaging/smoke.sh');
 assert.match(smoke, /\$\{secret_dir\}\/credential-store\/token/);

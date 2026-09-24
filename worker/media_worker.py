@@ -49,6 +49,11 @@ ENCODINGS = {'rgb8': ('RGB', 3), 'bgr8': ('BGR', 3), 'mono8': ('GRAY8', 1)}
 # asked for.
 PROFILE_IDC = {'constrained_baseline': 66, 'main': 77, 'high': 100}
 
+# nvv4l2h264enc names profiles by its own enumeration. Configuration advertises all three for this
+# backend, so the chain has to select one: leaving it at the element default made a `main` or `high`
+# track fail the probe that checks the encoder produced what was asked for.
+L4T_PROFILE = {'constrained_baseline': 0, 'main': 2, 'high': 4}
+
 
 def l4t_v4l2(spec):
     """Build the L4T V4L2 encoder chain.
@@ -61,7 +66,8 @@ def l4t_v4l2(spec):
     # maxperf-enable for instance exists on Orin but not on Thor.
     return ('videoconvert ! video/x-raw,format=I420 ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 '
             f'! nvv4l2h264enc bitrate={encoder["bitrate"]} iframeinterval={encoder["keyframe_interval"]} '
-            f'idrinterval={encoder["keyframe_interval"]} insert-sps-pps=true')
+            f'idrinterval={encoder["keyframe_interval"]} profile={L4T_PROFILE[encoder["profile"]]} '
+            'insert-sps-pps=true')
 
 
 def openh264(spec):

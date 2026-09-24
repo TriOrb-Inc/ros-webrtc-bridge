@@ -19,7 +19,7 @@ version) - a measurement nobody can attribute is not evidence.
 
 | Component | Where | Why there |
 | --- | --- | --- |
-| Independent image publisher (`../ros/video_peer.py`) | Container | A real rclpy node, so discovery and QoS are exercised rather than stubbed. It shares no code with the bridge |
+| Independent image publisher (`../ros/video_peer.py`) | Container | A real rclpy node, so discovery is exercised rather than stubbed. It shares no code with the bridge |
 | Bridge | Container | Started through the colcon-installed `ros2 run` entry point, not from the source tree |
 | Browser | Host | A decoder is what is being tested, so it must be a real one. Playwright drives Chromium and reaches the container over a private Docker network |
 
@@ -31,7 +31,7 @@ host graph is live.
 
 ## What it proves
 
-- The mock's `sensor_msgs/msg/Image` topic exists in the ROS graph the bridge is attached to.
+- The mock's `sensor_msgs/msg/Image` topic is discovered **by the gateway**, not merely by the container publishing it.
 - An offer carrying receive-only `m=video` sections is answered `sendonly`, with one answered section
   per offered slot.
 - **Nothing decodes before `video.subscribe`** - a negotiated section is a pipe, not a subscription.
@@ -44,7 +44,8 @@ host graph is live.
 
 The encoder is the `fixture` backend, which replays a committed recording
 (`../fixtures/video/h264-320x240.rtp`). So this does **not** verify encoding, ROS image metadata
-validation, or any GStreamer element - the mock publisher's frames are not what reaches the browser.
+validation, QoS negotiation on the image topic, or any GStreamer element - the replay backend creates
+no subscription at all, and the mock publisher's frames are not what reaches the browser.
 Those need a hardware backend. `../ros/hardware-video.yaml` is the same configuration with
 `backend: l4t_v4l2`, for the manual run described below.
 

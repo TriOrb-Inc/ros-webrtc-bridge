@@ -53,7 +53,7 @@ test('sends the track specification and nothing else', async () => {
   assert.equal(request.v, 1);
   assert.equal(request.op, 'probe');
   // Scopes, catalog names and credentials must not cross the process boundary.
-  assert.deepEqual(Object.keys(request.spec).sort(), ['encoder', 'input', 'ros_qos', 'ros_topic']);
+  assert.deepEqual(Object.keys(request.spec).sort(), ['encoder', 'input', 'ros_args', 'ros_qos', 'ros_topic']);
   assert.deepEqual(request.spec.encoder, { backend: 'openh264', bitrate: 4000000, keyframe_interval: 30, profile: 'constrained_baseline' });
   assert.equal(request.spec.ros_topic, '/camera/front/image_raw');
   assert.equal(p.state.streaming, false, 'probing needs no media descriptor');
@@ -175,4 +175,15 @@ test('does not report an exit we asked for as a failure', async () => {
   await source.stop();
   p.die();
   assert.equal(failures, 0);
+});
+
+test('gives the worker the same ROS arguments as the bridge', async () => {
+  // The worker resolves topic names in its own node. Without the deployment's remaps it subscribes
+  // to the name in the YAML while the graph publishes the remapped one, and nothing ever arrives.
+  const p = port();
+  const source = createWorkerFactory(p.value, ['--ros-args', '-r', '/camera:=/front'])(binding());
+  const starting = source.start(() => {}, () => {});
+  p.say(READY);
+  await starting;
+  assert.deepEqual(JSON.parse(p.sent[0]).spec.ros_args, ['--ros-args', '-r', '/camera:=/front']);
 });

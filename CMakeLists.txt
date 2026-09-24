@@ -124,6 +124,13 @@ endif()
 install(PROGRAMS scripts/ros_webrtc_bridge
   DESTINATION "${ROS_WEBRTC_BRIDGE_LIB_DIR}"
 )
+
+# The GStreamer backends are useless without their worker, so it ships with the bundle rather than
+# being expected from a source checkout. Its host dependencies - GStreamer, python3-gi, rclpy - stay
+# the deployment's responsibility, as with everything else this project does not bundle.
+install(FILES worker/media_worker.py
+  DESTINATION "${ROS_WEBRTC_BRIDGE_LIB_DIR}/worker"
+)
 install(DIRECTORY examples
   DESTINATION "share/${PROJECT_NAME}"
 )

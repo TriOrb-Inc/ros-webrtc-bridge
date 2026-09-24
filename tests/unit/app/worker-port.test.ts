@@ -111,3 +111,15 @@ test('terminates what is left when the pipe to a worker is already broken', asyn
   worker.send(`${JSON.stringify({ v: 1, op: 'force_keyframe' })}\n`);
   await new Promise(resolve => setTimeout(resolve, 50));
 });
+
+test('reports a worker that cannot be started at all', async () => {
+  // A missing or non-executable program makes Node emit `error` and never `exit`. Treated as a
+  // supervised departure it becomes an actionable backend failure; ignored it is an unhandled
+  // emitter error that takes the bridge down.
+  const worker = workerPort(resolve('.runtime', 'worker-port-absent'), []).spawn(binding(), true);
+  await new Promise<void>(resolve => worker.onExit(resolve));
+  // Subscribing after the process is already gone must still report it, not wait forever.
+  await new Promise<void>(resolve => worker.onExit(resolve));
+  // Stopping something that never started must not wait on a process that does not exist.
+  await worker.stop(`${JSON.stringify({ v: 1, op: 'shutdown' })}\n`);
+});

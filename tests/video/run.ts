@@ -157,14 +157,15 @@ async function verify(distro: 'humble' | 'jazzy', backend: Backend, mode: 'verif
     // than the replay backend's.
     await healthy(url, replay ? 30000 : 120000);
 
-    // DDS discovery is not instantaneous, so poll within a bounded deadline rather than sampling
-    // once and calling an undiscovered topic a failure.
+    // Ask the gateway, not the publisher. Listing topics inside the container that publishes them
+    // proves only that it can see itself, which would pass even if the two never discovered each
+    // other. DDS discovery is not instantaneous, so poll within a bounded deadline.
     const discovered = Date.now() + 30000;
     let topics = '';
     for (let attempt = 1; !/\/bridge_test\/image_raw/.test(topics); attempt++) {
-      assert.ok(Date.now() < discovered, `mock image topic was not discovered; last list: ${topics}`);
+      assert.ok(Date.now() < discovered, `the gateway did not discover the mock image topic; last list: ${topics}`);
       if (attempt > 1) await delay(1000);
-      topics = await run(`ros-topics-${attempt}`, 'docker', ['exec', peer, 'bash', '-lc',
+      topics = await run(`ros-topics-${attempt}`, 'docker', ['exec', gateway, 'bash', '-lc',
         'source /opt/ros/${ROS_DISTRO}/setup.bash && ros2 topic list']);
     }
 

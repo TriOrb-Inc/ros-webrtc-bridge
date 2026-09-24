@@ -55,9 +55,10 @@ function frames(onPacket: (packet: Buffer) => void): (chunk: Buffer) => void {
  * failure, since one backend crashing cannot disturb another.
  *
  * @param port Spawns the worker and reports failures; injected so tests need no child processes.
+ * @param rosArgs ROS arguments, including remaps, so the worker resolves the same names the bridge does.
  * @returns Factory producing one supervised worker per source.
  */
-export function createWorkerFactory(port: WorkerPort): MediaSourceFactory {
+export function createWorkerFactory(port: WorkerPort, rosArgs: readonly string[] = []): MediaSourceFactory {
   return (binding: VideoBinding): MediaSource => {
     let child: WorkerProcess | undefined;
     // An exit we asked for is not a failure. Without this the normal shutdown of the last viewer's
@@ -108,12 +109,12 @@ export function createWorkerFactory(port: WorkerPort): MediaSourceFactory {
     return {
       /** Prove the backend can encode here. No input; rejects with the worker's actionable reason. */
       async probe() {
-        try { await begin({ op: 'probe', spec: specification(binding) }); }
+        try { await begin({ op: 'probe', spec: specification(binding, rosArgs) }); }
         finally { await this.stop(); }
       },
       /** Start streaming. Inputs: packet and failure callbacks; returns a completion Promise. */
       async start(onPacket, onFailed) {
-        await begin({ op: 'start', spec: specification(binding) }, onPacket, onFailed);
+        await begin({ op: 'start', spec: specification(binding, rosArgs) }, onPacket, onFailed);
       },
       /** Ask the encoder for an IDR. No input; returns void. */
       requestKeyframe() {
@@ -134,11 +135,15 @@ export function createWorkerFactory(port: WorkerPort): MediaSourceFactory {
 /**
  * Reduce a binding to what the worker needs.
  * @param binding Validated track configuration.
+ * @param rosArgs ROS arguments passed through to the worker's node.
  * @returns Specification sent to the worker, e.g. `{ros_topic:'/camera0', input:{...}}`.
  */
-function specification(binding: VideoBinding): Record<string, unknown> {
+function specification(binding: VideoBinding, rosArgs: readonly string[]): Record<string, unknown> {
   // Only what the worker acts on crosses the boundary: no scopes, no credentials, no catalog.
   return {
+    // Without the deployment's remaps the worker subscribes to the name in the YAML while the graph
+    // publishes the remapped one, and the source sits in `starting` until it times out.
+    ros_args: [...rosArgs],
     ros_topic: binding.rosTopic,
     ros_qos: { reliability: binding.rosQos.reliability, depth: binding.rosQos.depth },
     input: { ...binding.input },

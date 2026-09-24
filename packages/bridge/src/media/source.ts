@@ -19,6 +19,8 @@ export class VideoSource {
   private lastKeyframeAt = Number.NEGATIVE_INFINITY;
   private packets = 0;
   private keyframeRequests = 0;
+  // True from the moment a stop begins until the encoder has actually been released.
+  private releasing = false;
 
   /** Own one validated binding. Input: VideoSourceOptions with injected clock and scheduler; returns a source. */
   constructor(options: VideoSourceOptions) {
@@ -32,7 +34,10 @@ export class VideoSource {
    * concurrency bound that ignored it would let one more start than the host was configured for.
    */
   get running(): boolean {
-    return this.phase !== 'idle' && this.phase !== 'failed';
+    // `releasing` covers the window after the phase is terminal but the worker has not exited: a
+    // wedged one is held for the forced-stop interval, and that is exactly when letting another
+    // encoder start would exceed the bound the host was configured for.
+    return this.releasing || (this.phase !== 'idle' && this.phase !== 'failed');
   }
 
   /** Report counters for internal diagnostics. No input; returns a snapshot without paths or payloads. */
@@ -141,7 +146,9 @@ export class VideoSource {
     this.phase = phase;
     this.notify();
     // Stop must not leave a child process behind even when it reports a failure.
+    this.releasing = source !== undefined;
     try { await source?.stop(); } catch { this.options.onError(); }
+    finally { this.releasing = false; }
   }
 
   /** Tell every viewer the current phase. No input; returns void. Notification callbacks must not throw. */
