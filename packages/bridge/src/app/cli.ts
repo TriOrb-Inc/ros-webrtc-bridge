@@ -10,6 +10,7 @@ import type { MediaSourceFactory, WorkerPort, WorkerProcess } from '../media/typ
 import type { MediaTrack, Peer, VideoSlot } from '../transport/types.js';
 import { startApp } from './runtime.js';
 import { inspectConfig } from './registry.js';
+import { createAsyncLineWriter, createCommandLogger } from './command-log.js';
 
 /** Werift media surface used to answer one receive-only video section. Tests inject the same shape. */
 export interface MediaTransport {
@@ -52,6 +53,14 @@ export function numberOption(value: string | undefined, fallback: number): numbe
   const number = value === undefined ? fallback : Number(value);
   if (!Number.isSafeInteger(number) || number <= 0) throw new Error('invalid_numeric_option');
   return number;
+}
+
+/** Read a strict boolean switch. Only the lowercase strings true and false are accepted. */
+export function booleanOption(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) return fallback;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  throw new Error('invalid_boolean_option');
 }
 
 type IceOptions = Readonly<{
@@ -235,6 +244,11 @@ export async function launch(env: NodeJS.ProcessEnv, loader: typeof loadModule =
       maxHandles: numberOption(env.BRIDGE_MAX_HANDLES, 64), maxRequests: numberOption(env.BRIDGE_MAX_REQUESTS, 64),
       requestTtlMs: numberOption(env.BRIDGE_REQUEST_TTL_MS, 30000), maxControlRateHz: numberOption(env.BRIDGE_MAX_CONTROL_RATE_HZ, 100) } };
   const spinTimeoutMs = numberOption(env.BRIDGE_SPIN_TIMEOUT_MS, 10);
+  const commandLogWrite = createAsyncLineWriter({ capacity: 256, schedule: task => { setImmediate(task); },
+    write: line => { console.log(line); } });
+  const commandLog = createCommandLogger({ enabled: booleanOption(env.BRIDGE_COMMAND_LOG, false),
+    windowMs: numberOption(env.BRIDGE_COMMAND_LOG_WINDOW_MS, 5000), clock: () => performance.now(),
+    write: commandLogWrite });
   const rcl = (await loader('rclnodejs') as { default: RclModule }).default;
   const transport = await loader('@ros-webrtc/werift-datachannel') as MediaTransport & { RTCPeerConnection: new (options: object) => Peer };
   // Public errors expose only fixed classifications, without payloads, SDP, or credentials.
@@ -248,7 +262,7 @@ export async function launch(env: NodeJS.ProcessEnv, loader: typeof loadModule =
     videoBackends,
     makeVideoSlot: (peer, offered) => videoSlot(transport, peer, offered),
     listen: handler => listenHttps(key, cert, host, port, handler),
-    clock: () => performance.now(), onError,
+    clock: () => performance.now(), onError, onCommandAudit: commandLog,
   });
 }
 

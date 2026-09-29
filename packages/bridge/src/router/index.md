@@ -16,6 +16,10 @@ Implements hello, subscribe/ready, advertise/arm, publish, removal operations, a
 
 Publication does not cross an asynchronous wait. The codec and authorization are re-evaluated immediately before the synchronous ROS call. A control-priority queue retains its head when sending is refused. Registering a subscription listener does not make it ready; synchronously delivered initial samples are discarded too. The request cache prevents repeated side effects from retransmission within its lifetime.
 
+Optional command audit events classify peer open/close, arm, and publish outcomes through a fixed
+allowlist. They carry only process-local integer correlations, and callback failures are isolated
+from the command path. Raw exceptions and all wire/application values remain absent.
+
 `isClosed` becomes true when closure starts. An optional `onClosed` is notified once after all resources are cleaned up. The Endpoint schedules PeerConnection closure in a microtask, so a router closure originating from a ROS callback also releases the process's peer registration.
 
 ## Goals
