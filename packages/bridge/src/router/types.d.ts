@@ -5,6 +5,14 @@ import type { VideoSlot } from '../transport/types.js';
 import type { VideoAccess } from './video.js';
 
 export type Channel = 'ros.control.v1' | 'ros.reliable.v1' | 'ros.realtime.v1';
+export type CommandAuditReason = 'invalid_request' | 'epoch_mismatch' | 'wrong_channel' | 'unauthorized' | 'unknown_publisher' | 'writer_busy'
+  | 'invalid_lease' | 'lease_expired' | 'stale_sequence' | 'rate_limited' | 'invalid_payload'
+  | 'ros_publish_failed' | 'internal';
+export type CommandAuditEvent = Readonly<
+  | { operation: 'peer'; outcome: 'opened' | 'closed'; peer: number }
+  | { operation: 'arm' | 'publish'; outcome: 'accepted'; peer: number; publisher: number; attempt: number }
+  | { operation: 'arm' | 'publish'; outcome: 'rejected'; reason: CommandAuditReason; peer: number; publisher: number; attempt: number }
+>;
 export interface RouterBinding { readonly binding: TopicBinding; readonly codec: Codec; readonly schemaId: string }
 export interface RouterOptions {
   readonly config: BridgeConfig;
@@ -21,6 +29,8 @@ export interface RouterOptions {
   readonly authorize?: (binding: TopicBinding, operation: 'subscribe' | 'publish') => boolean;
   /** Notify once after cleanup. Do not throw; schedule transport close in a microtask. */
   readonly onClosed?: () => void;
+  /** Optional internal audit sink. Publisher zero means resolution failed before a local publisher was found. */
+  readonly audit?: { readonly peer: number; readonly write: (event: CommandAuditEvent) => void };
   readonly limits: { readonly maxHandles: number; readonly maxRequests: number; readonly requestTtlMs: number; readonly maxControlRateHz: number };
   /**
    * Media plane for this peer: its authorization view plus the slots the transport negotiated, in
@@ -38,6 +48,7 @@ export interface Subscription {
 export interface Publisher {
   readonly entry: RouterBinding;
   readonly guarded: boolean;
+  readonly auditId: number;
   seq: bigint;
   nextAt: number;
 }

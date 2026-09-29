@@ -3,6 +3,7 @@ import type { RosBackend, RosDefinition } from '../ros/types.js';
 import type { MediaSourceFactory, Schedule } from '../media/types.js';
 import type { Peer, VideoSlot } from '../transport/types.js';
 import type { RouterOptions } from '../router/types.js';
+import type { CommandAuditEvent } from '../router/types.js';
 
 /** Explicit process startup configuration. The caller injects credentials and TLS settings from the environment. */
 export interface AppSettings {
@@ -33,5 +34,7 @@ export interface AppFactories {
   readonly schedule?: Schedule;
   readonly listen: (handler: (request: IncomingMessage, response: ServerResponse) => Promise<void>) => Promise<{ close(): Promise<void> }>;
   readonly onError: () => void;
+  /** Optional safe command audit sink; it must not throw into the application. */
+  readonly onCommandAudit?: (event: CommandAuditEvent) => void;
   readonly clock: () => number;
 }

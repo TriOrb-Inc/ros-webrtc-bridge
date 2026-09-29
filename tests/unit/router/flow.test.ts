@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { advertise, bytes, fixture } from './fixtures.js';
+import { commandAuditReason } from '../../../packages/bridge/src/router/index.js';
 
 test('PRO-02: deliver only new samples after hello/catalog, subscribe, and ready', () => {
   const f = fixture();
@@ -129,4 +130,100 @@ test('CMD-03/LIFE-01: validate shared-guard writer exclusivity across peers and 
   assert.equal(second.published.length, 1);
   second.router.close();
   assert.deepEqual(first.guard.stats(), { sessions: 0, handles: 0 });
+});
+
+test('SEC-01/CMD-01: audit arm and publish with only fixed classifications and local integers', () => {
+  const f = fixture();
+  const handle = advertise(f, '/cmd');
+  f.control({ op: 'arm', id: 'secret-request', handle });
+  const lease = f.last();
+  f.router.receive('ros.realtime.v1', bytes({ op: 'publish', id: 'secret-request', handle,
+    epoch: 'epoch-1', seq: '0', lease_id: lease.lease_id, data: { data: 'payload-canary' } }));
+  assert.deepEqual(f.audits.slice(0, 3), [
+    { operation: 'peer', outcome: 'opened', peer: 7 },
+    { operation: 'arm', outcome: 'accepted', peer: 7, publisher: 1, attempt: 1 },
+    { operation: 'publish', outcome: 'accepted', peer: 7, publisher: 1, attempt: 2 },
+  ]);
+  const serialized = JSON.stringify(f.audits);
+  for (const canary of ['secret-request', 'payload-canary', handle, lease.lease_id, 'epoch-1', '/cmd']) assert.equal(serialized.includes(canary), false);
+  f.state.now = 250;
+  f.router.receive('ros.realtime.v1', bytes({ op: 'publish', handle, epoch: 'epoch-1', seq: '1', lease_id: lease.lease_id, data: { data: 'x' } }));
+  assert.equal(f.audits.at(-1)!.outcome, 'rejected');
+  assert.equal((f.audits.at(-1) as { reason: string }).reason, 'lease_expired');
+  f.router.close();
+  assert.deepEqual(f.audits.at(-1), { operation: 'peer', outcome: 'closed', peer: 7 });
+});
+
+test('SEC-01: classify command failures without returning arbitrary exception text', () => {
+  const expected = new Map<string, string>([
+    ['unauthorized', 'unauthorized'], ['unknown_handle', 'unknown_publisher'], ['writer_busy', 'writer_busy'],
+    ['epoch_mismatch', 'epoch_mismatch'], ['wrong_channel', 'wrong_channel'],
+    ['invalid_owner', 'invalid_lease'], ['invalid_epoch', 'invalid_lease'], ['invalid_lease', 'invalid_lease'],
+    ['lease_expired', 'lease_expired'], ['stale_sequence', 'stale_sequence'], ['rate_limited', 'rate_limited'],
+  ]);
+  for (const [input, output] of expected) assert.equal(commandAuditReason(new Error(input)), output);
+  assert.equal(commandAuditReason(new Error('payload-canary'), 'invalid_payload'), 'invalid_payload');
+  assert.equal(commandAuditReason(new Error('unauthorized'), 'invalid_payload'), 'invalid_payload');
+  assert.equal(commandAuditReason(new Error('lease_expired'), 'ros_publish_failed'), 'ros_publish_failed');
+  assert.equal(commandAuditReason('payload-canary'), 'invalid_request');
+  assert.equal(commandAuditReason('payload-canary', 'internal'), 'internal');
+});
+
+test('CMD-02: distinguish stale, rate, payload, ROS, lease, and writer audit failures', () => {
+  const f = fixture();
+  const handle = advertise(f);
+  const request = { op: 'publish', handle, epoch: 'epoch-1', seq: '0', data: { data: 'ok' } };
+  f.router.receive('ros.reliable.v1', bytes({ ...request, epoch: 'old' }));
+  f.router.receive('ros.realtime.v1', bytes(request));
+  f.router.receive('ros.reliable.v1', bytes(request));
+  f.router.receive('ros.reliable.v1', bytes(request));
+  f.router.receive('ros.reliable.v1', bytes({ ...request, seq: '1' }));
+  f.state.now = 10;
+  f.router.receive('ros.reliable.v1', bytes({ ...request, seq: '1', data: { data: 1 } }));
+  f.state.publishThrows = true;
+  f.router.receive('ros.reliable.v1', bytes({ ...request, seq: '1' }));
+  const reasons = f.audits.filter(event => event.operation === 'publish' && event.outcome === 'rejected')
+    .map(event => (event as { reason: string }).reason);
+  assert.deepEqual(reasons, ['epoch_mismatch', 'wrong_channel', 'stale_sequence', 'rate_limited', 'invalid_payload', 'ros_publish_failed']);
+  f.router.close();
+
+  const guarded = fixture();
+  const guardedHandle = advertise(guarded, '/cmd');
+  guarded.control({ op: 'arm', id: 'a', handle: guardedHandle });
+  guarded.router.receive('ros.realtime.v1', bytes({ op: 'publish', handle: guardedHandle, epoch: 'epoch-1', seq: '0',
+    lease_id: 'not-the-lease', data: { data: 'x' } }));
+  assert.equal((guarded.audits.at(-1) as { reason: string }).reason, 'invalid_lease');
+  guarded.router.close();
+
+  const first = fixture();
+  const second = fixture(options => ({ ...options, guard: first.guard, epoch: 'epoch-2' }));
+  first.control({ op: 'hello' }); second.control({ op: 'hello' });
+  first.control({ op: 'advertise', id: 'p', topic: '/cmd' }); const firstHandle = first.last().handle;
+  second.control({ op: 'advertise', id: 'p', topic: '/cmd' }); const secondHandle = second.last().handle;
+  first.control({ op: 'arm', id: 'a', handle: firstHandle });
+  second.control({ op: 'arm', id: 'a', handle: secondHandle });
+  assert.equal((second.audits.at(-1) as { reason: string }).reason, 'writer_busy');
+  first.router.close(); second.router.close();
+});
+
+test('SEC-01: audit observer failure cannot reject a command', () => {
+  const f = fixture(options => ({ ...options, audit: { peer: 9, write: () => { throw new Error('diagnostic'); } } }));
+  const handle = advertise(f);
+  f.router.receive('ros.reliable.v1', bytes({ op: 'publish', handle, epoch: 'epoch-1', seq: '0', data: { data: 'ok' } }));
+  assert.equal(f.last().op, 'published_to_ros');
+  assert.equal(f.published.length, 1);
+  assert.doesNotThrow(() => f.router.close());
+});
+
+test('SEC-01: audit unknown publisher attempts without copying the supplied handle', () => {
+  const f = fixture();
+  f.control({ op: 'hello' });
+  f.control({ op: 'arm', id: 'private-id', handle: 'private-handle' });
+  assert.deepEqual(f.audits.at(-1), { operation: 'arm', outcome: 'rejected', reason: 'unknown_publisher',
+    peer: 7, publisher: 0, attempt: 1 });
+  f.router.receive('ros.reliable.v1', bytes({ op: 'publish', handle: 'private-handle', epoch: 'epoch-1', seq: '0', data: { data: 'private' } }));
+  assert.deepEqual(f.audits.at(-1), { operation: 'publish', outcome: 'rejected', reason: 'unknown_publisher',
+    peer: 7, publisher: 0, attempt: 2 });
+  assert.equal(JSON.stringify(f.audits).includes('private'), false);
+  f.router.close();
 });

@@ -4,6 +4,12 @@ This module connects configuration, codecs, a shared CommandGuard, and DeliveryQ
 
 `SessionRouter` accepts `config`, `bindings: [{binding, codec, schemaId}]`, a `guard` shared by all peers, a fresh per-connection `epoch`, a side-effect-free monotonic `clock`, `ros`, and `send`. Bindings must be TopicBindings from that same configuration. `ros.subscribe(publicName, callback)` returns an unsubscribe function; `ros.publish(publicName, native)` is synchronous. The process owns adapter startup and shutdown.
 
+Optional `audit` receives peer lifecycle and command arm/publication outcomes. Its schema contains
+only fixed classifications and process-local integer correlations; it deliberately excludes all
+wire identifiers, Topic names, data, native values, and raw exceptions. The router catches audit
+observer failures. Audit collection does not read the command guard's clock or weaken the generic
+`request_rejected` wire response.
+
 Construct command-binding codecs using `createCodec(descriptor, {allowNonFinite: false})`. The startup layer owns type registries and codec creation. Even when the same ROS type is used for telemetry, the command codec must reject non-finite values.
 
 `authorize(binding, 'subscribe' | 'publish')` is evaluated for each operation and immediately before delivery/publication. Omitting it denies access. `flush()` reauthorizes telemetry delayed by backpressure immediately before transmission. On authentication revocation, the transport must call `router.close()`. CommandGuard and router policies must refer to the same authenticated identity.

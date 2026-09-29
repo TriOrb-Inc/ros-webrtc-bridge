@@ -3,10 +3,29 @@ import { identifier, positiveLimit, sequence } from '../session/validation.js';
 import { CONTROL, dataChannel, encodeWire, fields, isChannel, parseWire, textField } from './protocol.js';
 import { RequestCache } from './request-cache.js';
 import { VideoRouter } from './video.js';
-import type { Channel, Publisher, RouterBinding, RouterOptions, Subscription, Wire } from './types.js';
+import type { Channel, CommandAuditEvent, CommandAuditReason, Publisher, RouterBinding, RouterOptions, Subscription, Wire } from './types.js';
 export type { Channel, RouterBinding, RouterOptions } from './types.js';
 export { VideoRouter } from './video.js';
 export type { VideoAccess } from './video.js';
+
+/** Convert internal failures to fixed audit classifications. Raw error text is never returned. */
+export function commandAuditReason(error: unknown, fallback: CommandAuditReason = 'invalid_request'): CommandAuditReason {
+  // Payload and ROS stages are authoritative; exception text from extensions cannot override them.
+  if (fallback !== 'invalid_request') return fallback;
+  if (!(error instanceof Error)) return fallback;
+  switch (error.message) {
+    case 'unauthorized': return 'unauthorized';
+    case 'epoch_mismatch': return 'epoch_mismatch';
+    case 'wrong_channel': return 'wrong_channel';
+    case 'unknown_handle': return 'unknown_publisher';
+    case 'writer_busy': return 'writer_busy';
+    case 'invalid_owner': case 'invalid_epoch': case 'invalid_lease': return 'invalid_lease';
+    case 'lease_expired': return 'lease_expired';
+    case 'stale_sequence': return 'stale_sequence';
+    case 'rate_limited': return 'rate_limited';
+    default: return fallback;
+  }
+}
 
 /** Connect wire operations of one authenticated peer to configuration, codecs, and ROS. */
 export class SessionRouter {
@@ -20,7 +39,10 @@ export class SessionRouter {
   private readonly cache: RequestCache;
   private readonly video?: VideoRouter;
   private readonly maxBytes: number;
+  private readonly auditPeer: number;
   private nextId = 0n;
+  private nextPublisherAuditId = 0;
+  private nextAttemptAuditId = 0;
   private lastTime = 0;
   private controlWindow = 0;
   private controlCount = 0;
@@ -36,6 +58,7 @@ export class SessionRouter {
     identifier(options.epoch);
     if (typeof options.clock !== 'function' || typeof options.send !== 'function') throw new Error('invalid_callback');
     this.options = { ...options, limits: { ...options.limits } };
+    this.auditPeer = options.audit?.peer ?? 0;
     // Copy validated entries so external mutation cannot replace the topic table.
     for (const entry of options.bindings) {
       if (!options.config.topics.includes(entry.binding) || this.entries.has(entry.binding.publicName)) throw new Error('invalid_binding');
@@ -51,6 +74,7 @@ export class SessionRouter {
     if (options.video !== undefined) this.video = new VideoRouter(options.video.access, options.video.slots, wire => this.event(wire));
     this.now();
     this.sessionId = options.guard.openSession(options.epoch);
+    this.audit({ operation: 'peer', outcome: 'opened', peer: this.auditPeer });
   }
 
   /** Validate input and execute an operation. Inputs: channel label and raw bytes, such as control and hello; sends welcome and returns void. */
@@ -108,6 +132,7 @@ export class SessionRouter {
     this.queue.clear(); this.cache.clear();
     // Notify the transport of closure initiated by a ROS callback. Notification callbacks must not throw.
     this.options.onClosed?.();
+    this.audit({ operation: 'peer', outcome: 'closed', peer: this.auditPeer });
     if (failures.length > 0) throw new AggregateError(failures, 'cleanup_failed');
   }
 
@@ -153,7 +178,7 @@ export class SessionRouter {
       if (wire.op === 'subscribe') return this.subscribe(entry, id);
       const guarded = entry.binding.commandGuard !== undefined;
       const handle = guarded ? this.options.guard.openHandle(this.sessionId, entry.binding.rosTopic, entry.binding.commandGuard!.leaseMs) : this.id();
-      this.publishers.set(handle, { entry, guarded, seq: -1n, nextAt: 0 });
+      this.publishers.set(handle, { entry, guarded, auditId: ++this.nextPublisherAuditId, seq: -1n, nextAt: 0 });
       return { v: 1, op: 'advertised', id, handle, epoch: this.options.epoch, schema_id: entry.schemaId };
     }
     if (wire.op === 'unsubscribe') {
@@ -163,15 +188,31 @@ export class SessionRouter {
     }
     if (this.video !== undefined && typeof wire.op === 'string' && wire.op.startsWith('video.')) return this.video.operation(wire, id);
     if (wire.op === 'arm' || wire.op === 'unadvertise') {
+      if (wire.op === 'arm') {
+        const attempt = ++this.nextAttemptAuditId;
+        let publisher: Publisher | undefined;
+        let publisherAuditId = 0;
+        try {
+          fields(wire, ['id', 'handle']);
+          const handle = textField(wire, 'handle');
+          publisher = this.publisher(handle);
+          publisherAuditId = publisher.auditId;
+          this.entry(publisher.entry.binding.publicName, 'publish');
+          if (!publisher.guarded) throw new Error('lease_not_required');
+          const lease = this.options.guard.arm(this.sessionId, handle);
+          this.audit({ operation: 'arm', outcome: 'accepted', peer: this.auditPeer,
+            publisher: publisher.auditId, attempt });
+          return { v: 1, op: 'lease', id, handle, epoch: this.options.epoch, lease_id: lease.id, expires_at: lease.expiresAt };
+        } catch (error) {
+          this.audit({ operation: 'arm', outcome: 'rejected', reason: commandAuditReason(error),
+            peer: this.auditPeer, publisher: publisherAuditId, attempt });
+          throw error;
+        }
+      }
       fields(wire, ['id', 'handle']);
       const handle = textField(wire, 'handle');
       const publisher = this.publisher(handle);
       this.entry(publisher.entry.binding.publicName, 'publish');
-      if (wire.op === 'arm') {
-        if (!publisher.guarded) throw new Error('lease_not_required');
-        const lease = this.options.guard.arm(this.sessionId, handle);
-        return { v: 1, op: 'lease', id, handle, epoch: this.options.epoch, lease_id: lease.id, expires_at: lease.expiresAt };
-      }
       if (publisher.guarded) this.options.guard.closeHandle(this.sessionId, handle);
       this.publishers.delete(handle);
       return { v: 1, op: 'unadvertised', id };
@@ -213,27 +254,55 @@ export class SessionRouter {
 
   /** Validate Web publishing through the synchronous ROS boundary. Inputs: channel label and wire envelope; sends ack and returns void. */
   private publish(channel: Channel, wire: Wire): void {
-    fields(wire, ['id', 'handle', 'epoch', 'seq', 'lease_id', 'data']);
-    if (!this.welcomed || wire.op !== 'publish' || wire.epoch !== this.options.epoch) throw new Error('invalid_publish');
-    const handle = textField(wire, 'handle');
-    const publisher = this.publisher(handle);
-    const entry = this.entry(publisher.entry.binding.publicName, 'publish');
-    if (channel !== dataChannel(entry.binding.delivery)) throw new Error('invalid_channel');
-    const seq = sequence(textField(wire, 'seq'));
-    const now = this.now();
-    if (seq <= publisher.seq || now < publisher.nextAt) throw new Error('publish_rate_or_sequence');
-    const native = entry.codec.decode(wire.data);
-    const ticket = publisher.guarded ? this.options.guard.prepare({ sessionId: this.sessionId, epoch: this.options.epoch, handle, leaseId: textField(wire, 'lease_id'), seq: String(seq) }) : undefined;
-    if (!publisher.guarded && wire.lease_id !== undefined) throw new Error('unexpected_lease');
-    // Do not roll back received sequence or rate state after ROS failure. Introduce no asynchronous waits.
-    publisher.seq = seq; publisher.nextAt = now + 1000 / entry.binding.maxRateHz;
-    const send = (): void => {
-      this.entry(entry.binding.publicName, 'publish');
-      entry.codec.encode(native);
-      this.options.ros.publish(entry.binding.publicName, native);
-    };
-    if (ticket === undefined) send(); else ticket.publish(send);
-    this.respond({ v: 1, op: 'published_to_ros', handle, seq: String(seq) });
+    const attempt = ++this.nextAttemptAuditId;
+    let publisher: Publisher | undefined;
+    let publisherAuditId = 0;
+    let fallback: CommandAuditReason = 'invalid_request';
+    let response: Wire;
+    try {
+      fields(wire, ['id', 'handle', 'epoch', 'seq', 'lease_id', 'data']);
+      if (!this.welcomed || wire.op !== 'publish') throw new Error('invalid_publish');
+      if (wire.epoch !== this.options.epoch) throw new Error('epoch_mismatch');
+      const handle = textField(wire, 'handle');
+      publisher = this.publisher(handle);
+      publisherAuditId = publisher.auditId;
+      const entry = this.entry(publisher.entry.binding.publicName, 'publish');
+      if (channel !== dataChannel(entry.binding.delivery)) throw new Error('wrong_channel');
+      const seq = sequence(textField(wire, 'seq'));
+      const now = this.now();
+      if (seq <= publisher.seq) throw new Error('stale_sequence');
+      if (now < publisher.nextAt) throw new Error('rate_limited');
+      fallback = 'invalid_payload';
+      const native = entry.codec.decode(wire.data);
+      fallback = 'invalid_request';
+      const ticket = publisher.guarded ? this.options.guard.prepare({ sessionId: this.sessionId, epoch: this.options.epoch, handle, leaseId: textField(wire, 'lease_id'), seq: String(seq) }) : undefined;
+      if (!publisher.guarded && wire.lease_id !== undefined) throw new Error('unexpected_lease');
+      // Do not roll back received sequence or rate state after ROS failure. Introduce no asynchronous waits.
+      publisher.seq = seq; publisher.nextAt = now + 1000 / entry.binding.maxRateHz;
+      const send = (): void => {
+        fallback = 'invalid_request';
+        this.entry(entry.binding.publicName, 'publish');
+        fallback = 'invalid_payload';
+        entry.codec.encode(native);
+        fallback = 'ros_publish_failed';
+        this.options.ros.publish(entry.binding.publicName, native);
+      };
+      if (ticket === undefined) send(); else ticket.publish(send);
+      this.audit({ operation: 'publish', outcome: 'accepted', peer: this.auditPeer,
+        publisher: publisher.auditId, attempt });
+      response = { v: 1, op: 'published_to_ros', handle, seq: String(seq) };
+    } catch (error) {
+      this.audit({ operation: 'publish', outcome: 'rejected', reason: commandAuditReason(error, fallback),
+        peer: this.auditPeer, publisher: publisherAuditId, attempt });
+      throw error;
+    }
+    // A response-queue failure does not change the already completed ROS publication outcome.
+    this.respond(response);
+  }
+
+  /** Emit a fixed, payload-free internal audit event. A failing observer never affects routing. */
+  private audit(event: CommandAuditEvent): void {
+    try { this.options.audit?.write(event); } catch { /* best-effort diagnostics */ }
   }
 
   /** Check topic, direction, and permissions. Inputs: public name and operation, e.g. ('/odom','subscribe'); returns a binding. */
