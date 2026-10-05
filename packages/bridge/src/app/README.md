@@ -35,6 +35,8 @@ After ament/colcon installation, `ros2 run ros_webrtc_bridge ros_webrtc_bridge` 
 | `BRIDGE_MAX_REQUESTS` | `64` | Request cache/control queue entries per peer |
 | `BRIDGE_REQUEST_TTL_MS` | `30000` | Request cache lifetime |
 | `BRIDGE_MAX_CONTROL_RATE_HZ` | `100` | Control operation rate per peer |
+| `BRIDGE_COMMAND_LOG` | `false` | Enable payload-free structured peer/arm/publish audit records; accepts only `true` or `false` |
+| `BRIDGE_COMMAND_LOG_WINDOW_MS` | `5000` | Duplicate audit suppression window; the next emitted record reports the suppressed count |
 
 Video is opt-in. Without `video_tracks` the media plane is never created: offers containing an
 `m=video` section are rejected exactly as before, `video.*` operations stay unknown, and the
@@ -51,6 +53,16 @@ a host that cannot provide the selected encoder fails the startup probe.
 YAML `limits` is authoritative for concurrent peers, message bytes, queues, and channel buffers. Guard leases use each binding's `command_guard.lease_ms`. Empty permission lists deny the corresponding operation. Publication also checks the explicit scope and binding direction. This startup mode provides fixed permissions for a single credential; JWT, per-user permission updates, and credential issuance services are unimplemented.
 
 An omitted `BRIDGE_HOST` selects loopback. An explicitly empty string rejects startup to prevent unintended wildcard binding.
+
+Command audit logging is disabled by default. When enabled, each line is JSON with schema
+`ros-webrtc-bridge.command-audit.v1`, a floored process-monotonic millisecond value, a fixed
+operation/outcome/reason classification, and only process-local integer peer/publisher/attempt correlations. It never includes Topic names, client or
+request identifiers, sequences, epochs, handles, leases, payloads, native values, credentials, SDP,
+ICE data, or raw errors. Repeated equal operation/outcome/reason records are bounded by a fixed
+window; correlations do not create limiter keys. Peer open/close records are not coalesced.
+Output I/O runs through a finite asynchronous queue, so records may be dropped during overload or
+shutdown. Audit output is best-effort and cannot change authorization or publication behavior.
+Publisher correlation `0` means rejection occurred before an existing local publisher was resolved.
 
 The server provides `GET /health` and authenticated `POST /offer`.
 

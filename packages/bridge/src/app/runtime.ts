@@ -25,6 +25,7 @@ export async function startApp(settings: AppSettings, factories: AppFactories) {
   let server: { close(): Promise<void> } | undefined;
   // Count peers before negotiation starts, reserving capacity so concurrent offers cannot exceed the limit.
   const peers = new Set<WebRtcEndpoint>();
+  let nextPeerAuditId = 0;
   let closing: Promise<void> | undefined;
   let stopped = false;
   /** Revoke sessions first and close the ROS context last. No input; returns an idempotent completion Promise. */
@@ -72,6 +73,7 @@ export async function startApp(settings: AppSettings, factories: AppFactories) {
     const handler = createSignalingHandler({ ...settings, maxBodyBytes: settings.maxSdpBytes, maxPending: config.limits.maxPeers,
       accept: async offer => {
         if (stopped || peers.size >= config.limits.maxPeers) throw new Error('peer_limit');
+        const peerAuditId = ++nextPeerAuditId;
         const peer = factories.makePeer();
         const service = media;
         const endpoint = new WebRtcEndpoint({ peer, maxMessageBytes: config.limits.maxMessageBytes,
@@ -82,6 +84,7 @@ export async function startApp(settings: AppSettings, factories: AppFactories) {
           makeRouter: (send, maxMessageBytes, onClosed, slots) => new SessionRouter({ config: { ...config, limits: { ...config.limits, maxMessageBytes } },
             bindings: registry, guard: guard!, ros: adapter!, epoch: randomUUID(), clock: factories.clock, send,
             authorize: allowed, limits: settings.routerLimits, onClosed,
+            audit: factories.onCommandAudit === undefined ? undefined : { peer: peerAuditId, write: factories.onCommandAudit },
             video: service && { slots, access: {
               maxSlots: service.maxSlots,
               /** List tracks this credential may watch. No input; returns catalog entries. */

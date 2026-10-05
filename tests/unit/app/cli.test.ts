@@ -5,7 +5,7 @@ import { request } from 'node:https';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
-import { iceOptions, launch, listenHttps, loadModule, main, numberOption } from '../../../packages/bridge/src/app/cli.js';
+import { booleanOption, iceOptions, launch, listenHttps, loadModule, main, numberOption } from '../../../packages/bridge/src/app/cli.js';
 import { definition, fakePeer, settings, source } from './fixtures.js';
 
 /** Generate TLS for local validation. No arguments; returns environment and key/certificate. Store private keys only in Git-ignored scratch space. */
@@ -44,6 +44,13 @@ test('CFG-01 validate numeric environment values and fail before loading native 
     { BRIDGE_ICE_STUN_URL: 'stuns:stun.example.test' }, { BRIDGE_TLS_KEY: '/file-that-does-not-exist' }]) {
     await assert.rejects(launch({ ...f.env, ...overrides }, async () => assert.fail('native must not load')));
   }
+});
+
+test('CFG-01 parse command audit switch strictly', () => {
+  assert.equal(booleanOption(undefined, false), false);
+  assert.equal(booleanOption('true', false), true);
+  assert.equal(booleanOption('false', true), false);
+  for (const value of ['', 'TRUE', '1', 'yes']) assert.throws(() => booleanOption(value, false), /boolean/);
 });
 
 test('CFG-01 validate optional STUN and fixed UDP range settings', () => {
@@ -126,7 +133,8 @@ test('CFG-01 assemble the native facade and real HTTPS from CLI environment vari
     : { RTCPeerConnection: class { constructor(options: object) { peerOptions = options; peer = fakePeer(); return peer; } },
         MediaStreamTrack: class { writeRtp() {} stop() {} }, useH264: (props: object) => props };
   const env = { ...f.env, BRIDGE_PORT: String(port), BRIDGE_SUBSCRIBE_TOPICS: '/out', BRIDGE_PUBLISH_SCOPES: 'command',
-    BRIDGE_ICE_STUN_URL: 'stun:stun.example.test:3478', BRIDGE_ICE_PORT_MIN: '50000', BRIDGE_ICE_PORT_MAX: '50019' };
+    BRIDGE_ICE_STUN_URL: 'stun:stun.example.test:3478', BRIDGE_ICE_PORT_MIN: '50000', BRIDGE_ICE_PORT_MAX: '50019',
+    BRIDGE_COMMAND_LOG: 'true', BRIDGE_COMMAND_LOG_WINDOW_MS: '1' };
   const app = await launch(env, loader);
   assert.equal((await http(port, '/health')).status, 200);
   assert.equal((await http(port, '/offer', { type: 'offer', sdp: 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n' })).status, 200);
