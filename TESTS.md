@@ -380,3 +380,16 @@ Build output goes to `.runtime/build/` and coverage to `.runtime/coverage/`. Ins
 ## Credential-store validation
 
 `npm test` also runs `tests/unit/credential/*.test.mjs` directly and enforces C0/C1 100% for `scripts/credential-store.mjs`. Tests cover create-once concurrency, existing-value retention, private permissions, symlink/nonregular/path rejection, malformed tokens, ownership, storage publication failure cleanup, ordered directory fsync including newly created ancestors and existing/concurrent winners, directory-sync failure rejection, secret-free CLI output, direct execution through symlink installations, and inert ESM imports. Tokens are generated at runtime and assertions never render their values. The package contract verifies the shared helper's source and CMake install rule; the packaging smoke test executes `ensure` and `read` from the installed `share/ros_webrtc_bridge/scripts/credential-store.mjs`. These checks do not establish safety against malicious processes with the same user identity or credential delivery over HTTP.
+
+### Packed images with odd input axes
+
+`tests/unit/config/video.test.ts` checks that odd raw axes require an explicit even output geometry.
+With GStreamer, Python GI and OpenH264 installed, run:
+
+```bash
+python3 tests/worker/test_media_worker.py
+```
+
+The worker tests verify packed and padded BGR rows against GStreamer's four-byte stride and encode
+591×480 input at 592×480, checking the actual H.264 parameter set. This does not verify ROS delivery
+or browser playback; those require the deployment integration check.

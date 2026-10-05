@@ -129,6 +129,8 @@ class Encoder:
         self.encoding_name = image['encoding']
         self.width, self.height = image['width'], image['height']
         self.expected_step = self.width * self.bytes_per_pixel
+        # Packed RGB/BGR/GRAY8 caps use rows aligned to four bytes in GStreamer.
+        self.gst_step = (self.expected_step + 3) & ~3
         self.on_packet = on_packet
         self.frames_in = self.frames_invalid = self.frames_dropped = self.packets = 0
         # leaky-type=downstream drops the oldest frame rather than blocking the ROS callback: a late
@@ -201,9 +203,10 @@ class Encoder:
                 or message.step < self.expected_step or len(data) != message.step * message.height):
             self.frames_invalid += 1
             return False
-        if message.step != self.expected_step:
-            # Row padding: repack so the buffer matches the caps stride exactly.
-            data = b''.join(bytes(data[row * message.step:row * message.step + self.expected_step])
+        if message.step != self.gst_step:
+            # Replace ROS row padding with the stride required by the negotiated caps.
+            padding = bytes(self.gst_step - self.expected_step)
+            data = b''.join(bytes(data[row * message.step:row * message.step + self.expected_step]) + padding
                             for row in range(self.height))
         # appsrc is leaky, so it evicts silently and still answers OK: the return value can never
         # report a drop. Ask it what it is holding instead - a queue already at its limit means this
@@ -233,7 +236,7 @@ def probe(spec):
     try:
         encoder.start()
         image = spec['input']
-        blank = bytes(image['width'] * ENCODINGS[image['encoding']][1] * image['height'])
+        blank = bytes(encoder.gst_step * image['height'])
         loop_deadline = GLib.get_monotonic_time() + spec.get('probe_timeout_ms', 5000) * 1000
         for _ in range(PROBE_FRAMES):
             encoder.source.emit('push-buffer', Gst.Buffer.new_wrapped(blank))

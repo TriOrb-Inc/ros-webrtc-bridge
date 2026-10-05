@@ -47,4 +47,5 @@ of the three is present; configuring only some of them is rejected rather than h
 Video tracks are parsed separately by `parseVideoConfig`, and their `ros_topic` is used as written:
 `options.resolveTopic` applies to `topics` only, so a deployment's ROS remaps do not move a video
 source. A track may name an `output` geometry, which is the size it encodes at; omitting it encodes
-at the input size. Both axes must be even, because H.264 has no representation for an odd one.
+at the input size. Encoded axes must be even. Odd raw input axes are accepted only with an explicit
+even output geometry; the worker aligns packed rows to GStreamer caps before scaling.
