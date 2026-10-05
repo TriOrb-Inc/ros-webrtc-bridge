@@ -369,6 +369,8 @@ reconnect does not restart the pipeline. Viewers of one source share a single en
 viewer joining mid-stream triggers a keyframe. A slot binds to a track for the session: reusing a
 mid for a different source would change resolution and parameter sets underneath a decoder.
 
+Raw image axes may be odd when an explicit `output` geometry provides even encoded axes.
+The worker repacks ROS row padding to the four-byte alignment required by GStreamer raw caps.
 A track encodes at its input size unless it names an `output` geometry, which the media plane scales
 to before encoding. Scaling belongs here because nothing else can do it: the ROS source publishes
 what the camera produces, and the H.264 level is a property of the encoded size. A 1600x1300 source

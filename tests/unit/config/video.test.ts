@@ -176,6 +176,17 @@ test('scales to an explicit output geometry when one is configured', () => {
   assert.equal(parseVideoConfig(JSON.stringify(plain), topicsOf(plain))?.tracks[0].output, undefined);
 });
 
+test('accepts odd raw-image axes when output is explicitly even', () => {
+  const value = root(value => {
+    value.video_tracks.front.input = { encoding: 'bgr8', width: 591, height: 479, framerate: 15 };
+    value.video_tracks.front.output = { width: 592, height: 480 };
+  });
+  const video = parseVideoConfig(JSON.stringify(value), topicsOf(value));
+  assert.equal(video?.tracks[0].input.width, 591);
+  assert.equal(video?.tracks[0].input.height, 479);
+  assert.deepEqual(video?.tracks[0].output, { width: 592, height: 480 });
+});
+
 test('refuses an input geometry H.264 cannot encode', () => {
   // The same rule as `output`: an odd axis has no representation in a chroma-subsampled picture, and
   // accepting one lets the probe pass on a geometry that then encodes to nothing watchable.

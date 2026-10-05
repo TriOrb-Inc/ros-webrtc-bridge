@@ -66,10 +66,16 @@ function videoBinding(name: string, value: unknown, limits: VideoLimits): VideoB
   // Latched history would replay a stale frame into a live stream; require volatile delivery.
   if (qos.durability !== 'volatile') throw new ConfigError(path, 'video requires volatile durability');
   const access = record(map.access, ['subscribe_scope'], `${path}.access`);
+  const input = videoInput(map.input, limits, path);
+  const output = map.output === undefined ? undefined : videoOutput(map.output, limits, path);
+  // Raw images may have odd axes; the encoded H.264 picture must have even axes.
+  if (output === undefined && (input.width % 2 !== 0 || input.height % 2 !== 0)) {
+    throw new ConfigError(`${path}.input`, 'width and height must be even when output is not configured');
+  }
   return Object.freeze({
     name, rosTopic, rosType, rosQos: qos,
-    input: videoInput(map.input, limits, path),
-    ...(map.output === undefined ? {} : { output: videoOutput(map.output, limits, path) }),
+    input,
+    ...(output === undefined ? {} : { output }),
     encoder: videoEncoder(map.encoder, path),
     // Omitting the scope is not "public": the caller denies every scope it was not granted.
     access: Object.freeze({ subscribeScope: string(access.subscribe_scope, /^[A-Za-z0-9_.:-]+$/, `${path}.access.subscribe_scope`) }),
@@ -93,10 +99,6 @@ function videoInput(value: unknown, limits: VideoLimits, path: string): VideoBin
   if (width > limits.maxWidth || height > limits.maxHeight || framerate > limits.maxFramerate) {
     throw new ConfigError(`${path}.input`, 'exceeds configured video limits');
   }
-  // H.264 codes a chroma-subsampled picture, so an odd axis has no representation - the same reason
-  // `output` is checked. Rejecting here is what keeps a probe from passing on a geometry that then
-  // encodes to something with no picture in it.
-  if (width % 2 !== 0 || height % 2 !== 0) throw new ConfigError(`${path}.input`, 'width and height must be even');
   return Object.freeze({ encoding, width, height, framerate });
 }
 
