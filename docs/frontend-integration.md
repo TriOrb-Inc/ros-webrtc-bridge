@@ -206,7 +206,7 @@ An acknowledgement means the ROS publish API succeeded; it does not guarantee co
 
 Re-arm with a fresh request ID; it invalidates the old lease. On lease renewal, epoch change, disconnect, or UI shutdown, discard old commands and unsent queues and send only newly entered input. Do not reset sequence numbers when re-arming the same handle. Reconnection starts from a new PeerConnection, three channels, and hello/welcome; never reuse old streams, handles, leases, or epochs. The control request cache is finite, so request retransmission is not guaranteed to be deduplicated forever.
 
-Monitor `RTCDataChannel.bufferedAmount` and deployment rate/capacity limits; suppress sending at the limit. Each UTF-8 envelope must fit the minimum of the configured limit, 16 KiB, and the negotiated limit. There is no automatic fragmentation. Do not accumulate old commands in reliable queues or reconnect replay queues. Lease expiry itself does not publish a stop command or zero velocity to ROS. The command guard and controller watchdog have separate responsibilities.
+Monitor `RTCDataChannel.bufferedAmount` and deployment rate/capacity limits; suppress sending at the limit. Each UTF-8 envelope must fit the minimum of the configured limit, 128 KiB, and the negotiated limit. There is no automatic fragmentation. Do not accumulate old commands in reliable queues or reconnect replay queues. Lease expiry itself does not publish a stop command or zero velocity to ROS. The command guard and controller watchdog have separate responsibilities.
 
 ## ROS JSON representation
 

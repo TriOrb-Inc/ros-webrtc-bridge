@@ -1,3 +1,4 @@
+import { MAX_MESSAGE_BYTES } from '../config/index.js';
 import { positiveLimit } from '../session/validation.js';
 import { parseOffer } from './sdp.js';
 import type { Channel } from '../router/types.js';
@@ -24,7 +25,7 @@ export class WebRtcEndpoint {
   constructor(options: EndpointOptions) {
     for (const value of [options.maxMessageBytes, options.maxBufferedBytes, options.maxSdpBytes, options.timeoutMs]) positiveLimit(value);
     this.options = { ...options };
-    this.maxMessageBytes = Math.min(16384, options.maxMessageBytes);
+    this.maxMessageBytes = Math.min(MAX_MESSAGE_BYTES, options.maxMessageBytes);
     if (options.maxBufferedBytes < this.maxMessageBytes) throw new Error('invalid_limit');
     // SDP alone cannot establish channel delivery attributes; inspect them again after receiving DCEP.
     this.subscriptions.push(options.peer.onDataChannel.subscribe(channel => this.channel(channel)));

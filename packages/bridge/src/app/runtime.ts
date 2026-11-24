@@ -18,7 +18,7 @@ export async function startApp(settings: AppSettings, factories: AppFactories) {
   for (const value of [settings.timeoutMs, settings.maxSdpBytes, settings.requestTimeoutMs, ...Object.values(settings.routerLimits)]) positiveLimit(value);
   // Validate credentials before native initialization; check the same authentication boundary when creating the handler.
   if (typeof settings.credential !== 'string' || settings.credential.length < 32) throw new Error('invalid_credential');
-  const backend = await factories.initialize();
+  const backend = await factories.initialize(preliminary.limits.maxMessageBytes);
   let adapter: TopicRosAdapter | undefined;
   let guard: CommandGuard | undefined;
   let media: MediaService | undefined;
@@ -72,7 +72,7 @@ export async function startApp(settings: AppSettings, factories: AppFactories) {
     const handler = createSignalingHandler({ ...settings, maxBodyBytes: settings.maxSdpBytes, maxPending: config.limits.maxPeers,
       accept: async offer => {
         if (stopped || peers.size >= config.limits.maxPeers) throw new Error('peer_limit');
-        const peer = factories.makePeer();
+        const peer = factories.makePeer(config.limits.maxMessageBytes);
         const service = media;
         const endpoint = new WebRtcEndpoint({ peer, maxMessageBytes: config.limits.maxMessageBytes,
           maxBufferedBytes: config.limits.maxChannelBufferedBytes, maxSdpBytes: settings.maxSdpBytes, timeoutMs: settings.timeoutMs,

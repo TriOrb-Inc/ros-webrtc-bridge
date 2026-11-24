@@ -96,7 +96,7 @@ test('CFG-01 validate numeric limits and configure QoS independently of DataChan
   for (const value of [0, -1, Infinity, NaN, '1', 0.5, Number.MAX_SAFE_INTEGER + 1]) {
     assert.throws(() => changed(v => { v.limits.max_peers = value; }), ConfigError);
   }
-  for (const [key, value] of [['max_message_bytes', 16385], ['max_peer_queue_bytes', 100], ['max_channel_buffered_bytes', 100]]) {
+  for (const [key, value] of [['max_message_bytes', 65537], ['max_peer_queue_bytes', 100], ['max_channel_buffered_bytes', 100]]) {
     assert.throws(() => changed(v => { v.limits[key] = value; }), /inconsistent/);
   }
   // Verify that reliable delivery does not override DDS reliability.
@@ -109,6 +109,17 @@ test('CFG-01 validate numeric limits and configure QoS independently of DataChan
   assert.equal(config.topics[0].rosQos.reliability, 'best_effort');
   assert.equal(config.topics[0].maxRateHz, 0.5);
   assert.equal(config.topics[0].queue.maxMessages, 2);
+});
+
+test('SIZE-01 allow 128 KiB when both buffers fit and reject the next byte', () => {
+  // Use buffers that can hold the rejected value to isolate the application ceiling.
+  const configure = (maxMessageBytes: number) => changed(v => {
+    v.limits.max_message_bytes = maxMessageBytes;
+    v.limits.max_peer_queue_bytes = 262144;
+    v.limits.max_channel_buffered_bytes = 262144;
+  });
+  assert.equal(configure(131072).limits.maxMessageBytes, 131072);
+  assert.throws(() => configure(131073), /inconsistent/);
 });
 
 test('CFG-01 reject contradictions between delivery queues and command protection', () => {

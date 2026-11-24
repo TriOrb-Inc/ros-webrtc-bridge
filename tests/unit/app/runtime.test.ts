@@ -48,6 +48,30 @@ test('ACK-01 connect shared ROS and authenticated three-channel peers and verify
   assert.deepEqual(f.events, ['spin', 'ros_close', 'http_close']);
 });
 
+test('SIZE-01 deliver a large ROS String through the configured app and session', async context => {
+  const f = fixture();
+  const configSource = source.replace('max_message_bytes: 4096', 'max_message_bytes: 131072')
+    .replace('max_peer_queue_bytes: 65536', 'max_peer_queue_bytes: 262144')
+    .replace('max_channel_buffered_bytes: 8192', 'max_channel_buffered_bytes: 262144');
+  const app = await startApp({ ...settings, configSource }, f.factories);
+  context.after(() => app.close());
+  assert.equal(await f.offer(262144), 200);
+  assert.deepEqual(f.factoryLimits, { native: 131072, peer: 131072 });
+
+  // Exercise the runtime-created ROS normalizer, registry codec, router, and endpoint.
+  const peer = f.peers[0];
+  peer.open();
+  const [control, reliable] = peer.channels;
+  control.onMessage.emit('{"v":1,"op":"hello"}');
+  control.onMessage.emit('{"v":1,"op":"subscribe","id":"s","topic":"/out"}');
+  const streamId = control.sent.at(-1)!.stream_id;
+  control.onMessage.emit(JSON.stringify({ v: 1, op: 'ready', stream_id: streamId }));
+  const payload = { data: '地'.repeat(30000) };
+  f.sample(payload);
+  assert.equal(reliable.sent.at(-1)?.op, 'message');
+  assert.deepEqual(reliable.sent.at(-1)?.data, payload);
+});
+
 test('AUTH-01 default-deny catalog and publication without an allowlist', async () => {
   const f = fixture();
   const app = await startApp({ ...settings, subscribeTopics: [], publishScopes: [] }, f.factories);

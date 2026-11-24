@@ -120,7 +120,7 @@ These are initial evaluation values, not performance limits or safety standards.
 
 For example, rename the `/cmd_vel` key to `/operator/velocity` and add `ros_topic: /cmd_vel` to change only the public name. Apply ROS remapping to the destination; retain the configured key as the public Web name. Command writer ownership is managed per normalized, remapped ROS output Topic regardless of the number of aliases.
 
-The catalog returns only authorized public names, types, directions, wire schema IDs, delivery modes, and size/rate limits. Later references to aliases mean these public names. Do not expose unconfigured Topics or arbitrary client-selected ROS types. HTTP schema retrieval must be authenticated and size-bounded; do not pack large schemas into a 16 KiB DataChannel message.
+The catalog returns only authorized public names, types, directions, wire schema IDs, delivery modes, and size/rate limits. Later references to aliases mean these public names. Do not expose unconfigured Topics or arbitrary client-selected ROS types. HTTP schema retrieval must be authenticated and size-bounded; do not pack large schemas into a DataChannel message.
 
 Initially, load configuration only at startup. Apply ACL revocation immediately through a separate session-management operation.
 
@@ -203,7 +203,7 @@ A Web snapshot is a separate feature returning the last sample received by the G
 
 Bound every value through configuration and reject contradictions at startup.
 
-- A v0.1 DataChannel message, including its UTF-8 envelope, must fit `min(configured limit, 16 KiB, negotiated transport limit)`. 16 KiB is a conservative application limit, not a universal WebRTC limit.
+- A v0.1 DataChannel message, including its UTF-8 envelope, must fit `min(configured limit, 128 KiB, negotiated transport limit)`. 128 KiB is the application ceiling. Set `limits.max_message_bytes` to a smaller value when the deployment carries only small messages.
 - v0.1 has no fragmentation. Image, point-cloud, LaserScan, and other types are not rejected solely by type, but oversized encoded messages receive explicit size errors.
 - Bound messages per stream, queue bytes per peer, process-wide bytes, and DataChannel buffered bytes. Include telemetry caches in accounting.
 - Resume transmission using `bufferedAmount` and low-watermark notifications. Prioritize control and never block ROS callbacks waiting for sends when limits are reached.
@@ -345,7 +345,7 @@ provides the `l4t_v4l2` and `openh264` backends. Both have been verified to a re
 on Jetson hardware; see [the video harness](../tests/video/README.md).
 
 Video is a separate plane from Topics. Raw frames and RTP never pass through the JSON codec or the
-DataChannel queues: a 720p frame is four orders of magnitude larger than the 16 KiB envelope limit,
+DataChannel queues: a 720p frame is much larger than the DataChannel envelope limit,
 and the two paths need different authorization, sizing and backpressure. Configuration is opt-in and
 all-or-nothing. Without `video_tracks` the bridge is byte-identical to a DataChannel-only
 deployment: offers containing `m=video` are rejected, `video.*` operations stay unknown, and

@@ -39,7 +39,8 @@ export function createRegistry(config: BridgeConfig, describe: (type: string) =>
     const allowNonFinite = binding.commandGuard === undefined;
     const schema = JSON.stringify(canonical({ codec: 'ros-json-v1', descriptor, allowNonFinite }));
     // Do not infer command usage from type names. Reject nonfinite values only for bindings with an explicit guard.
-    return { binding, codec: createCodec(descriptor, { allowNonFinite }),
+    return { binding, codec: createCodec(descriptor, { allowNonFinite,
+      maxStringBytes: config.limits.maxMessageBytes, maxByteLength: config.limits.maxMessageBytes }),
       schemaId: `sha256:${createHash('sha256').update(schema).digest('hex')}` };
   });
 }

@@ -1,3 +1,4 @@
+import { MAX_MESSAGE_BYTES } from '../config/index.js';
 import { DeliveryQueue } from '../session/delivery-queue.js';
 import { identifier, positiveLimit, sequence } from '../session/validation.js';
 import { CONTROL, dataChannel, encodeWire, fields, isChannel, parseWire, textField } from './protocol.js';
@@ -42,7 +43,7 @@ export class SessionRouter {
       identifier(entry.schemaId);
       this.entries.set(entry.binding.publicName, { ...entry });
     }
-    this.maxBytes = Math.min(16384, options.config.limits.maxMessageBytes);
+    this.maxBytes = Math.min(MAX_MESSAGE_BYTES, options.config.limits.maxMessageBytes);
     this.queue = new DeliveryQueue({ maxStreams: options.limits.maxHandles + 1, maxBytes: options.config.limits.maxPeerQueueBytes, maxMessageBytes: this.maxBytes });
     this.queue.register('control', 'reliable', options.limits.maxRequests);
     this.cache = new RequestCache(options.limits.maxRequests, options.limits.requestTtlMs, options.config.limits.maxPeerQueueBytes);

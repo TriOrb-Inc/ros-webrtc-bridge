@@ -74,6 +74,26 @@ test('PRO-01/SIZE-01 validate three channels and negotiated limits and pass byte
   await f.endpoint.close();
 });
 
+test('SIZE-01 keep an explicitly negotiated limit above 16 KiB and respect the SDP default', async () => {
+  const capacities = { maxMessageBytes: 131072, maxBufferedBytes: 262144 };
+  const f = fixture(capacities);
+  await f.endpoint.answer({ ...offer, sdp: `${sdp}a=max-message-size:262144\r\n` });
+  assert.equal(f.state().maximum, 131072);
+
+  // Allow an entire message at the configured cap after channels become ready.
+  const realtime = channel('ros.realtime.v1');
+  for (const dc of [channel('ros.control.v1'), channel('ros.reliable.v1'), realtime]) f.onDataChannel.emit(dc);
+  assert.equal(f.send('ros.realtime.v1', Buffer.alloc(131072)), true);
+  assert.equal(realtime.sent[0].byteLength, 131072);
+  assert.throws(() => f.send('ros.realtime.v1', Buffer.alloc(131073)), /message_size/);
+  await f.endpoint.close();
+
+  const defaultSdp = fixture(capacities);
+  await defaultSdp.endpoint.answer(offer);
+  assert.equal(defaultSdp.state().maximum, 65536);
+  await defaultSdp.endpoint.close();
+});
+
 test('PRO-01 close peers on invalid channel settings, duplicates, early arrival, and oversized messages', async () => {
   for (const dc of [channel('extra'), channel('ros.control.v1', { negotiated: true }), channel('ros.control.v1', { ordered: false }),
     channel('ros.control.v1', { maxPacketLifeTime: 1 }), channel('ros.realtime.v1', { maxRetransmits: 1 })]) {
