@@ -2,13 +2,14 @@
 
 import json
 import os
+import signal
 import time
 
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
-from rclpy.executors import ExternalShutdownException
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.signals import SignalHandlerOptions
 from rclpy.utilities import get_rmw_implementation_identifier
 from std_msgs.msg import String
 from bridge_test_interfaces.msg import BridgeFrame
@@ -60,21 +61,32 @@ def main():
     deadline_seconds = float(os.environ.get('ROS_TEST_TIMEOUT_SECONDS', '120'))
     if not 0 < deadline_seconds <= 3600:
         raise ValueError('ROS_TEST_TIMEOUT_SECONDS must be within (0, 3600]')
-    rclpy.init()
-    node = Peer(os.environ.get('ROS_TEST_NAMESPACE', '/bridge_test'))
-    # Do not assume discovery after a fixed sleep; the Gateway waits for responses with a deadline.
-    deadline = time.monotonic() + deadline_seconds
+    stop_requested = False
+
+    def request_stop(_signum, _frame):
+        """Record a signal such as SIGTERM and return None so the current spin can finish."""
+        nonlocal stop_requested
+        stop_requested = True
+
+    # rclpy's default handlers can invalidate the context while spin_once is creating a wait set.
+    signal.signal(signal.SIGINT, request_stop)
+    signal.signal(signal.SIGTERM, request_stop)
+    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     try:
-        while rclpy.ok() and time.monotonic() < deadline:
-            rclpy.spin_once(node, timeout_sec=0.25)
-        print('independent ROS peer deadline reached', flush=True)
-    except ExternalShutdownException:
-        # The rclpy SIGTERM handler shuts down the context first. Treat this as normal teardown.
-        print('independent ROS peer shutdown requested', flush=True)
+        node = Peer(os.environ.get('ROS_TEST_NAMESPACE', '/bridge_test'))
+        try:
+            # Bound the spin so shutdown is observed even when no messages arrive.
+            deadline = time.monotonic() + deadline_seconds
+            while not stop_requested and time.monotonic() < deadline:
+                rclpy.spin_once(node, timeout_sec=0.25)
+            if stop_requested:
+                print('independent ROS peer shutdown requested', flush=True)
+            else:
+                print('independent ROS peer deadline reached', flush=True)
+        finally:
+            node.destroy_node()
     finally:
-        node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+        rclpy.shutdown()
 
 
 if __name__ == '__main__':
