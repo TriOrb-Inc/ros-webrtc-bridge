@@ -23,8 +23,8 @@ export interface AppBackend extends RosBackend {
   describe(type: string): RosDefinition;
 }
 export interface AppFactories {
-  readonly initialize: () => Promise<AppBackend>;
-  readonly makePeer: () => Peer;
+  readonly initialize: (maxMessageBytes: number) => Promise<AppBackend>;
+  readonly makePeer: (maxMessageBytes: number) => Peer;
   /** Encoder implementations this build provides, keyed by backend id. Missing ones fail the probe. */
   readonly videoBackends?: Readonly<Record<string, MediaSourceFactory>>;
   /** Add a send-only H.264 transceiver to one peer. Required when any track is configured. */

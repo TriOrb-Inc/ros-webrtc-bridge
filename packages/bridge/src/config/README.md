@@ -13,7 +13,7 @@ The prototype restricts Web and ROS names to absolute names of at most 247 ASCII
 | YAML | YAML 1.2 core, one document. Duplicate keys, aliases, custom tags, and unknown fields are rejected |
 | `maxConfigBytes` | Override in `options`; default 1048576 UTF-8 bytes |
 | `maxTopics` | Override in `options`; default 256; at least one binding is required |
-| `limits` | All four fields are required positive safe integers. A single message must be at most 16384 bytes and fit in both the peer queue and channel buffer |
+| `limits` | All four fields are required positive safe integers. A single message must be at most 131072 bytes and fit in both the peer queue and channel buffer |
 | `ros_qos` | All fields required. Uses `keep_last` and a positive `depth`. DDS reliability is independent of DataChannel delivery |
 | Delivery | `realtime` requires `latest / max_messages: 1`; `reliable` requires a finite `fifo` |
 | `max_rate_hz` | Required positive finite number; fractions are allowed. Higher layers implement rate enforcement |

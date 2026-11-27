@@ -5,6 +5,9 @@ export { ConfigError, readDocument } from './validation.js';
 export { parseVideoConfig, PROFILE_IDC } from './video.js';
 export type { BridgeConfig, ConfigOptions, TopicBinding, VideoBinding, VideoConfig } from './types.js';
 
+// Bound every deployment even when a peer advertises unlimited SCTP message size.
+export const MAX_MESSAGE_BYTES = 128 * 1024;
+
 /** Parse startup configuration from YAML and the installed type registry. Example: bridge.yaml returns a frozen BridgeConfig. */
 export function parseBridgeConfig(source: string, options: ConfigOptions): BridgeConfig {
   const maxBytes = positive(options.maxConfigBytes ?? 1048576, 'maxConfigBytes', true);
@@ -31,7 +34,7 @@ function parseLimits(value: unknown): BridgeConfig['limits'] {
   const maxPeerQueueBytes = positive(map.max_peer_queue_bytes, 'limits.max_peer_queue_bytes', true);
   // Reject configurations that cannot hold even one message at startup. The transport applies the negotiated minimum.
   const maxChannelBufferedBytes = positive(map.max_channel_buffered_bytes, 'limits.max_channel_buffered_bytes', true);
-  if (maxMessageBytes > 16384 || maxMessageBytes > maxPeerQueueBytes || maxMessageBytes > maxChannelBufferedBytes) {
+  if (maxMessageBytes > MAX_MESSAGE_BYTES || maxMessageBytes > maxPeerQueueBytes || maxMessageBytes > maxChannelBufferedBytes) {
     throw new ConfigError('limits', 'inconsistent message or buffer limits');
   }
   return Object.freeze({ maxPeers, maxMessageBytes, maxPeerQueueBytes, maxChannelBufferedBytes });

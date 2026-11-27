@@ -240,11 +240,16 @@ export async function launch(env: NodeJS.ProcessEnv, loader: typeof loadModule =
   // Public errors expose only fixed classifications, without payloads, SDP, or credentials.
   const onError = () => { console.log('Bridge resource or ROS callback failed'); };
   return startApp(settings, {
-    initialize: () => createRclnodejsBackend(rcl, { nodeName: env.BRIDGE_NODE_NAME ?? 'ros_webrtc_gateway', namespace: '/', args,
-      spinTimeoutMs, onError }),
+    initialize: maxMessageBytes => createRclnodejsBackend(rcl, {
+      nodeName: env.BRIDGE_NODE_NAME ?? 'ros_webrtc_gateway', namespace: '/', args, spinTimeoutMs,
+      // A ROS String must pass native normalization as well as the outgoing envelope check.
+      codecOptions: { maxStringBytes: maxMessageBytes, maxByteLength: maxMessageBytes }, onError,
+    }),
     // Declaring the video codec here is what lets werift negotiate a payload type with the browser;
     // the deployment's ICE settings are carried through unchanged.
-    makePeer: () => new transport.RTCPeerConnection({ ...peerOptions, codecs: { video: [transport.useH264({})] } }),
+    makePeer: maxMessageBytes => new transport.RTCPeerConnection({
+      ...peerOptions, maxMessageSize: maxMessageBytes, codecs: { video: [transport.useH264({})] },
+    }),
     videoBackends,
     makeVideoSlot: (peer, offered) => videoSlot(transport, peer, offered),
     listen: handler => listenHttps(key, cert, host, port, handler),

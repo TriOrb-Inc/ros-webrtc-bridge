@@ -63,18 +63,23 @@ export function fixture() {
     createPublisher() { return { publish(value: unknown) { published.push(value); } }; },
     createSubscription(_type: string, _topic: string, _qos: unknown, listener: typeof sample) { sample = listener; },
     spin() { events.push('spin'); }, close() { events.push('ros_close'); } };
-  const factories: AppFactories = { initialize: async () => backend, clock: () => 10, onError: () => { events.push('error'); },
-    makePeer() { const peer = fakePeer(); peers.push(peer); return peer as Peer; },
+  const factoryLimits: { native: number | undefined; peer: number | undefined } = { native: undefined, peer: undefined };
+  const factories: AppFactories = {
+    async initialize(maxMessageBytes?: number) { factoryLimits.native = maxMessageBytes; return backend; },
+    clock: () => 10, onError: () => { events.push('error'); },
+    makePeer(maxMessageBytes?: number) { factoryLimits.peer = maxMessageBytes; const peer = fakePeer(); peers.push(peer); return peer as Peer; },
     async listen(handler) { handle = handler; return { async close() { events.push('http_close'); } }; } };
-  /** Submit a signaling offer. No input; returns status. Authentication uses fixture-generated random values. */
-  async function offer() {
+  /** Submit a signaling offer. Input: optional advertised byte limit; returns status. Example: offer(262144) advertises 256 KiB. */
+  async function offer(maxMessageBytes?: number) {
     const request = Object.assign(new EventEmitter(), { method: 'POST', url: '/offer', headers: {
       authorization: `Bearer ${settings.credential}`, 'content-type': 'application/json' } });
     let status = 0;
     const response = { writeHead(value: number) { status = value; }, end() {} };
     const pending = handle(request as IncomingMessage, response as unknown as ServerResponse);
-    request.emit('data', Buffer.from(JSON.stringify({ type: 'offer', sdp: 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n' })));
+    const sdp = 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n' +
+      (maxMessageBytes === undefined ? '' : `a=max-message-size:${maxMessageBytes}\r\n`);
+    request.emit('data', Buffer.from(JSON.stringify({ type: 'offer', sdp })));
     request.emit('end'); await pending; request.emit('close'); return status;
   }
-  return { factories, backend, peers, events, published, offer, sample: (value: unknown) => sample(value) };
+  return { factories, backend, peers, events, published, offer, factoryLimits, sample: (value: unknown) => sample(value) };
 }

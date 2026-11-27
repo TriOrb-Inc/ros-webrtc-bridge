@@ -101,19 +101,24 @@ test('LIFE-01 validate HTTPS listen, handler, close, and bind failures with real
   await server.close(); await assert.rejects(server.close(), /not running/);
 });
 
-test('CFG-01 assemble the native facade and real HTTPS from CLI environment variables', async () => {
+test('CFG-01/SIZE-01 assemble the native facade and apply the large message limit through HTTPS', async () => {
   const f = await credentials();
+  await writeFile(f.env.BRIDGE_CONFIG, source.replace('max_message_bytes: 4096', 'max_message_bytes: 131072')
+    .replace('max_peer_queue_bytes: 65536', 'max_peer_queue_bytes: 262144')
+    .replace('max_channel_buffered_bytes: 8192', 'max_channel_buffered_bytes: 262144'));
   const probe = await listenHttps(f.key, f.cert, '127.0.0.1', 0, async () => {});
   const port = (probe.address as AddressInfo).port; await probe.close();
   const events: string[] = [];
   let peerOptions: object | undefined;
   let peer: ReturnType<typeof fakePeer>;
+  let receiveRos!: (value: unknown) => void;
   class Context { shutdown() { events.push('shutdown'); } }
   class Node {
     createPublisher(_type: string, topic: string) { return { topic, publish() {} }; }
     createSubscription(_type: string, _topic: string, _options: object, callback: (value: unknown) => void) {
       // Pass invalid callback values to exercise the anonymized error hook too.
       callback({ data: 1 });
+      receiveRos = callback;
       return { topic: _topic };
     }
     resolveTopicName(name: string) { return name; }
@@ -129,12 +134,20 @@ test('CFG-01 assemble the native facade and real HTTPS from CLI environment vari
     BRIDGE_ICE_STUN_URL: 'stun:stun.example.test:3478', BRIDGE_ICE_PORT_MIN: '50000', BRIDGE_ICE_PORT_MAX: '50019' };
   const app = await launch(env, loader);
   assert.equal((await http(port, '/health')).status, 200);
-  assert.equal((await http(port, '/offer', { type: 'offer', sdp: 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n' })).status, 200);
-  // The deployment's ICE settings reach the peer unchanged, alongside the declared video codec.
+  assert.equal((await http(port, '/offer', { type: 'offer',
+    sdp: 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=max-message-size:262144\r\n' })).status, 200);
+  // Check that the native ROS normalizer and peer both use the configured rather than default limit.
   assert.deepEqual(peerOptions, { iceServers: [{ urls: 'stun:stun.example.test:3478' }], icePortRange: [50000, 50019],
-    codecs: { video: [{}] } });
-  peer!.open(); peer!.channels[0].onMessage.emit('{"v":1,"op":"hello"}');
-  assert.equal((peer!.channels[0].sent.at(-1)!.catalog as unknown[]).length, 2);
+    maxMessageSize: 131072, codecs: { video: [{}] } });
+  peer!.open();
+  const [control, reliable] = peer!.channels;
+  control.onMessage.emit('{"v":1,"op":"hello"}');
+  assert.equal((control.sent.at(-1)!.catalog as unknown[]).length, 2);
+  control.onMessage.emit('{"v":1,"op":"subscribe","id":"s","topic":"/out"}');
+  control.onMessage.emit(JSON.stringify({ v: 1, op: 'ready', stream_id: control.sent.at(-1)!.stream_id }));
+  const payload = { data: '地'.repeat(30000) };
+  receiveRos(payload);
+  assert.deepEqual(reliable.sent.at(-1)?.data, payload);
   await app.close(); assert.deepEqual(events, ['spin', 'shutdown']);
   // Explicit node names, hosts, ROS arguments, and empty permission lists are part of the startup contract.
   const other = await launch({ ...f.env, BRIDGE_PORT: String(port), BRIDGE_NODE_NAME: 'other', BRIDGE_HOST: '127.0.0.1', BRIDGE_ROS_ARGS: '["--ros-args"]' }, loader);
